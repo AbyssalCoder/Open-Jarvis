@@ -1,0 +1,157 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ========================================
+   JARVIS Global Styles
+   Visual Language: docs/architecture/VISUAL_LANGUAGE.md
+   ======================================== */
+
+:root {
+    /* Core Palette */
+    --color-core-blue: #0A84FF;
+    --color-deep-blue: #0051A8;
+    --color-arctic-white: #E8F0FE;
+    --color-void-black: #050A12;
+    --color-surface-dark: #0D1520;
+
+    /* Accent Palette */
+    --color-energy-cyan: #00D4FF;
+    --color-warm-amber: #FF9500;
+    --color-signal-red: #FF3B30;
+    --color-growth-green: #30D158;
+    --color-reasoning-violet: #BF5AF2;
+
+    /* Typography Scale */
+    --text-xs: 0.625rem;
+    --text-sm: 0.75rem;
+    --text-base: 0.875rem;
+    --text-lg: 1rem;
+    --text-xl: 1.25rem;
+    --text-2xl: 1.5rem;
+    --text-3xl: 2rem;
+    --text-display: 3rem;
+}
+
+/* Reset & Base */
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: var(--color-void-black);
+    color: var(--color-arctic-white);
+    font-family: 'Inter', 'SF Pro Display', system-ui, -apple-system, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+    width: 100%;
+    height: 100%;
+    position: relative;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: rgba(10, 132, 255, 0.3);
+    border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(10, 132, 255, 0.5);
+}
+
+/* Selection */
+::selection {
+    background: rgba(10, 132, 255, 0.3);
+    color: var(--color-arctic-white);
+}
+
+/* Glass morphism utility */
+@layer components {
+    .glass-panel {
+        background: rgba(13, 21, 32, 0.85);
+        backdrop-filter: blur(12px) saturate(150%);
+        -webkit-backdrop-filter: blur(12px) saturate(150%);
+        border: 1px solid rgba(10, 132, 255, 0.12);
+        border-radius: 12px;
+    }
+
+    .glass-panel-hover:hover {
+        border-color: rgba(10, 132, 255, 0.25);
+        box-shadow: 0 0 20px rgba(10, 132, 255, 0.1);
+    }
+
+    .text-glow {
+        text-shadow: 0 0 10px rgba(10, 132, 255, 0.5);
+    }
+
+    /* Holographic floating panel (used in 3D Html overlays) */
+    .holo-panel {
+        background: rgba(5, 10, 18, 0.75);
+        backdrop-filter: blur(8px);
+        border: 1px solid rgba(10, 132, 255, 0.2);
+        border-radius: 6px;
+        box-shadow:
+            0 0 15px rgba(10, 132, 255, 0.08),
+            inset 0 0 20px rgba(10, 132, 255, 0.03);
+        position: relative;
+        overflow: hidden;
+    }
+
+    .holo-panel::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 1px;
+        background: linear-gradient(
+            90deg,
+            transparent,
+            rgba(0, 212, 255, 0.4),
+            transparent
+        );
+    }
+
+    .holo-panel::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 1px;
+        bottom: 0;
+        background: linear-gradient(
+            180deg,
+            rgba(0, 212, 255, 0.3),
+            transparent
+        );
+    }
+}
+
+/* Canvas sits behind everything */
+canvas {
+    position: fixed !important;
+    top: 0;
+    left: 0;
+    z-index: 0;
+}

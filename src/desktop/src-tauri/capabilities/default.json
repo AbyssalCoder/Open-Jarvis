@@ -1,0 +1,14 @@
+{
+    "identifier": "default",
+    "description": "Default capabilities for the main window",
+    "windows": ["main"],
+    "permissions": [
+        "core:default",
+        "global-shortcut:default",
+        "shell:default",
+        "fs:default",
+        "notification:default",
+        "clipboard-manager:default",
+        "window-state:default"
+    ]
+}

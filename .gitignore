@@ -1,0 +1,47 @@
+# Environment
+.env
+.env.*
+!.env.example
+src/backend/.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Rust / Tauri
+src/desktop/src-tauri/target/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+*.dll
+*.so
+*.dylib
+
+# Frontend build output
+src/frontend/dist/
+
+# Data / generated
+data/vectors/
+data/conversation_history.json
+*.jsonl
+
+# Tauri generated icons (keep the source)
+src/desktop/src-tauri/gen_icon.py
