@@ -7,6 +7,7 @@ import {
 } from 'react';
 import { useSystemStore, useAIStore, useAgentStore } from '@/core/store';
 
+const BACKEND_URL = 'http://localhost:8420';
 const BACKEND_WS_URL = 'ws://localhost:8420/ws';
 
 interface WSContextValue {
@@ -98,8 +99,35 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
 
     useEffect(() => {
         connect();
+
+        // Poll backend + Ollama health every 5s to keep status panels live
+        const pollHealth = async () => {
+            const store = useSystemStore.getState();
+            try {
+                const r = await fetch(`${BACKEND_URL}/health`, { signal: AbortSignal.timeout(3000) });
+                store.setBackendConnected(r.ok);
+            } catch {
+                store.setBackendConnected(false);
+            }
+            try {
+                const r = await fetch(`${BACKEND_URL}/api/ollama/status`, { signal: AbortSignal.timeout(3000) });
+                if (r.ok) {
+                    const d = await r.json();
+                    store.setOllamaConnected(d.status === 'ok');
+                } else {
+                    store.setOllamaConnected(false);
+                }
+            } catch {
+                store.setOllamaConnected(false);
+            }
+        };
+
+        pollHealth();
+        const healthInterval = setInterval(pollHealth, 5000);
+
         return () => {
             clearTimeout(reconnectTimer.current);
+            clearInterval(healthInterval);
             wsRef.current?.close();
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps

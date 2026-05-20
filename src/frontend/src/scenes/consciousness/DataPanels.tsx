@@ -303,12 +303,14 @@ function AIStatusPanel() {
 /* ─── Network ─── */
 function NetworkPanel() {
     const wsConnected = useSystemStore(s => s.wsConnected);
+    const ollamaConnected = useSystemStore(s => s.ollamaConnected);
+    const backendConnected = useSystemStore(s => s.backendConnected);
     return (
         <div style={{ width: 130, padding: 10 }}>
             <div style={LBL}>NETWORK</div>
             <StatusRow label="WebSocket" ok={wsConnected} />
-            <StatusRow label="Ollama" ok={false} />
-            <StatusRow label="Backend" ok={true} />
+            <StatusRow label="Ollama" ok={ollamaConnected} />
+            <StatusRow label="Backend" ok={backendConnected} />
         </div>
     );
 }

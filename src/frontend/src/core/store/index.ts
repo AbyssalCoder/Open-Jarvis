@@ -142,17 +142,25 @@ export interface SystemMetrics {
 interface SystemSlice {
     metrics: SystemMetrics;
     wsConnected: boolean;
+    ollamaConnected: boolean;
+    backendConnected: boolean;
     backendStatus: 'starting' | 'ready' | 'error';
     updateMetrics: (m: Partial<SystemMetrics>) => void;
     setWsConnected: (v: boolean) => void;
+    setOllamaConnected: (v: boolean) => void;
+    setBackendConnected: (v: boolean) => void;
     setBackendStatus: (s: 'starting' | 'ready' | 'error') => void;
 }
 
 export const useSystemStore = create<SystemSlice>()((set) => ({
     metrics: { cpuUsage: 0, ramUsedMB: 0, ramTotalMB: 0, gpuUsage: 0, fps: 60 },
     wsConnected: false,
+    ollamaConnected: false,
+    backendConnected: false,
     backendStatus: 'starting',
     setWsConnected: (v) => set({ wsConnected: v }),
+    setOllamaConnected: (v) => set({ ollamaConnected: v }),
+    setBackendConnected: (v) => set({ backendConnected: v }),
     setBackendStatus: (s) => set({ backendStatus: s }),
     updateMetrics: (m) =>
         set((s) => ({ metrics: { ...s.metrics, ...m } })),
