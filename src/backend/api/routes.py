@@ -1,6 +1,7 @@
 """REST API routes."""
 
 import json
+import httpx
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -98,3 +99,17 @@ async def status():
         "status": "running",
         "agents": agent_registry.active_count,
     }
+
+
+@router.get("/ollama/status")
+async def ollama_status():
+    """Proxy Ollama health check — avoids CORS issues from Tauri webview."""
+    from config import config
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(f"{config.ollama_url}/api/tags", timeout=3.0)
+            data = resp.json()
+            models = [m.get("name", "") for m in data.get("models", [])]
+            return {"status": "ok", "models": models}
+    except Exception:
+        return {"status": "error", "models": []}

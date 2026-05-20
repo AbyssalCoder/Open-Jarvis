@@ -9,8 +9,8 @@ interface BootStep {
 
 const BOOT_STEPS: BootStep[] = [
     { id: 'init', label: 'Initializing JARVIS Core', status: 'pending' },
-    { id: 'ollama', label: 'Starting Ollama AI Engine', status: 'pending' },
     { id: 'backend', label: 'Starting Backend Services', status: 'pending' },
+    { id: 'ollama', label: 'Connecting Ollama AI Engine', status: 'pending' },
     { id: 'models', label: 'Loading AI Models', status: 'pending' },
     { id: 'ready', label: 'Systems Online', status: 'pending' },
 ];
@@ -41,68 +41,55 @@ export function SplashScreen({ onReady }: { onReady: () => void }) {
             updateStep('init', 'done');
             setProgress(15);
 
-            // Step 2: Ollama
-            updateStep('ollama', 'active');
-            setStatusText('Connecting to Ollama AI Engine...');
-            setProgress(20);
-
-            let ollamaReady = false;
-            for (let i = 0; i < 30; i++) {
-                if (cancelled) return;
-                try {
-                    const resp = await fetch(`${OLLAMA_URL}/api/tags`, { signal: AbortSignal.timeout(2000) });
-                    if (resp.ok) { ollamaReady = true; break; }
-                } catch { /* retry */ }
-                setProgress(20 + Math.min(i * 2, 20));
-                setStatusText(i > 5 ? 'Waiting for Ollama to start...' : 'Connecting to Ollama AI Engine...');
-                await sleep(1000);
-            }
-
-            if (!ollamaReady) {
-                // Try to start Ollama
-                setStatusText('Starting Ollama...');
-                try {
-                    // In Tauri, we'd use shell plugin. In browser, just wait.
-                    if ((window as any).__TAURI__) {
-                        const { Command } = await import('@tauri-apps/plugin-shell');
-                        Command.create('ollama', ['serve']).spawn();
-                        await sleep(3000);
-                    }
-                } catch { /* ignore */ }
-
-                // Retry check
-                for (let i = 0; i < 15; i++) {
-                    if (cancelled) return;
-                    try {
-                        const resp = await fetch(`${OLLAMA_URL}/api/tags`, { signal: AbortSignal.timeout(2000) });
-                        if (resp.ok) { ollamaReady = true; break; }
-                    } catch { /* retry */ }
-                    await sleep(1000);
-                }
-            }
-
-            updateStep('ollama', ollamaReady ? 'done' : 'error');
-            setProgress(45);
-            if (cancelled) return;
-
-            // Step 3: Backend
+            // Step 2: Wait for Backend first (Tauri starts it automatically)
             updateStep('backend', 'active');
             setStatusText('Starting Backend Services...');
-            setProgress(50);
+            setProgress(20);
 
             let backendReady = false;
-            for (let i = 0; i < 40; i++) {
+            for (let i = 0; i < 60; i++) {
                 if (cancelled) return;
                 try {
                     const resp = await fetch(`${BACKEND_URL}/health`, { signal: AbortSignal.timeout(2000) });
                     if (resp.ok) { backendReady = true; break; }
                 } catch { /* retry */ }
-                setProgress(50 + Math.min(i, 25));
-                if (i > 10) setStatusText('Backend is loading, please wait...');
+                setProgress(20 + Math.min(i, 25));
+                if (i > 15) setStatusText('Backend is loading, please wait...');
                 await sleep(750);
             }
 
             updateStep('backend', backendReady ? 'done' : 'error');
+            setProgress(50);
+            if (cancelled) return;
+
+            // Step 3: Check Ollama (via backend proxy to avoid CORS issues)
+            updateStep('ollama', 'active');
+            setStatusText('Connecting to Ollama AI Engine...');
+            setProgress(55);
+
+            let ollamaReady = false;
+            for (let i = 0; i < 40; i++) {
+                if (cancelled) return;
+                try {
+                    // Try backend proxy first (works in Tauri, avoids CORS)
+                    if (backendReady) {
+                        const resp = await fetch(`${BACKEND_URL}/api/ollama/status`, { signal: AbortSignal.timeout(3000) });
+                        if (resp.ok) {
+                            const data = await resp.json();
+                            if (data.status === 'ok') { ollamaReady = true; break; }
+                        }
+                    } else {
+                        // Fallback: direct check (works in dev browser)
+                        const resp = await fetch(`${OLLAMA_URL}/api/tags`, { signal: AbortSignal.timeout(2000) });
+                        if (resp.ok) { ollamaReady = true; break; }
+                    }
+                } catch { /* retry */ }
+                setProgress(55 + Math.min(i, 20));
+                setStatusText(i > 10 ? 'Waiting for Ollama to start...' : 'Connecting to Ollama AI Engine...');
+                await sleep(1000);
+            }
+
+            updateStep('ollama', ollamaReady ? 'done' : 'error');
             setProgress(80);
             if (cancelled) return;
 

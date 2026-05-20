@@ -22,14 +22,26 @@ const BACKEND_HOST: &str = "127.0.0.1";
 const OLLAMA_URL: &str = "http://127.0.0.1:11434";
 
 /// Ensure Ollama is running. If not, try to start it.
+/// Helper: build a reqwest client with short timeout and no proxy (avoids Windows proxy hangs)
+fn http_client(timeout_secs: u64) -> reqwest::Client {
+    reqwest::Client::builder()
+        .no_proxy()
+        .timeout(std::time::Duration::from_secs(timeout_secs))
+        .build()
+        .unwrap_or_default()
+}
+
 pub async fn ensure_ollama_running() -> Result<(), String> {
+    let client = http_client(5);
+
     // Check if already running
-    if let Ok(resp) = reqwest::get(format!("{OLLAMA_URL}/api/tags")).await {
+    if let Ok(resp) = client.get(format!("{OLLAMA_URL}/api/tags")).send().await {
         if resp.status().is_success() {
-            println!("[JARVIS] Ollama is already running");
+            crate::log("Ollama already running");
             return Ok(());
         }
     }
+    crate::log("Ollama not running, searching for binary...");
 
     // Build dynamic search paths for Ollama
     let mut ollama_paths = vec!["ollama".to_string()];
@@ -55,20 +67,22 @@ pub async fn ensure_ollama_running() -> Result<(), String> {
 
     let mut started = false;
     for path in &ollama_paths {
-        println!("[JARVIS] Trying to start Ollama from: {path}");
+        crate::log(&format!("Trying Ollama from: {path}"));
         match std::process::Command::new(path)
             .arg("serve")
+            // Allow Tauri webview origin for CORS
+            .env("OLLAMA_ORIGINS", "https://tauri.localhost,http://localhost:1420,http://localhost:5173,http://localhost:8420")
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .spawn()
         {
             Ok(_child) => {
-                println!("[JARVIS] Ollama process spawned from: {path}");
+                crate::log(&format!("Ollama spawned from: {path}"));
                 started = true;
                 break;
             }
             Err(e) => {
-                println!("[JARVIS] Failed to start Ollama from {path}: {e}");
+                crate::log(&format!("Ollama spawn failed from {path}: {e}"));
                 continue;
             }
         }
@@ -81,9 +95,9 @@ pub async fn ensure_ollama_running() -> Result<(), String> {
     // Wait for Ollama to be ready (up to 20s)
     for i in 0..40 {
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-        if let Ok(resp) = reqwest::get(format!("{OLLAMA_URL}/api/tags")).await {
+        if let Ok(resp) = client.get(format!("{OLLAMA_URL}/api/tags")).send().await {
             if resp.status().is_success() {
-                println!("[JARVIS] Ollama is ready (took ~{}ms)", i * 500);
+                crate::log(&format!("Ollama ready (took ~{}ms)", i * 500));
                 return Ok(());
             }
         }
@@ -92,13 +106,44 @@ pub async fn ensure_ollama_running() -> Result<(), String> {
     Err("Ollama started but not responding within 20s".into())
 }
 
+/// Pre-load the jarvis model so the first chat response is fast
+pub async fn warmup_model() {
+    crate::log("warming up jarvis model...");
+    let client = http_client(60);
+    // Send a tiny generate request to load the model into memory
+    let body = serde_json::json!({
+        "model": "jarvis",
+        "prompt": "hi",
+        "stream": false,
+        "options": { "num_predict": 1 }
+    });
+    match client
+        .post(format!("{OLLAMA_URL}/api/generate"))
+        .json(&body)
+        .send()
+        .await
+    {
+        Ok(resp) if resp.status().is_success() => {
+            crate::log("Model 'jarvis' loaded into memory");
+        }
+        Ok(resp) => {
+            crate::log(&format!("Model warmup response: {}", resp.status()));
+        }
+        Err(e) => {
+            crate::log(&format!("Model warmup failed (non-critical): {e}"));
+        }
+    }
+}
+
 pub async fn start_python_backend(app: &AppHandle) -> Result<(), String> {
     set_status(BackendStatus::Starting);
 
+    let client = http_client(5);
+
     // First check if backend is already running (user started it manually)
-    if let Ok(resp) = reqwest::get(format!("http://{BACKEND_HOST}:{BACKEND_PORT}/health")).await {
+    if let Ok(resp) = client.get(format!("http://{BACKEND_HOST}:{BACKEND_PORT}/health")).send().await {
         if resp.status().is_success() {
-            println!("[JARVIS] Backend already running on port {BACKEND_PORT}");
+            crate::log("Backend already running");
             set_status(BackendStatus::Running);
             return Ok(());
         }
@@ -109,7 +154,7 @@ pub async fn start_python_backend(app: &AppHandle) -> Result<(), String> {
     if sidecar_result.is_ok() {
         return sidecar_result;
     }
-    println!("[JARVIS] Sidecar not available, trying Python fallback: {:?}", sidecar_result.err());
+    crate::log(&format!("Sidecar not available, trying Python fallback: {:?}", sidecar_result.err()));
 
     // --- Strategy 2: Find and run Python backend (dev mode / unbundled) ---
     try_python_backend().await
@@ -128,7 +173,7 @@ async fn try_sidecar_backend(app: &AppHandle) -> Result<(), String> {
                 let dest_env = jarvis_dir.join(".env");
                 if !dest_env.exists() {
                     let _ = std::fs::copy(&bundled_env, &dest_env);
-                    println!("[JARVIS] Copied .env to {}", dest_env.display());
+                    crate::log(&format!("Copied .env to {}", dest_env.display()));
                 }
             }
         }
@@ -146,7 +191,7 @@ async fn try_sidecar_backend(app: &AppHandle) -> Result<(), String> {
         return Err(format!("Sidecar not found at {}", sidecar_exe.display()));
     }
 
-    println!("[JARVIS] Starting sidecar backend: {}", sidecar_exe.display());
+    crate::log(&format!("Starting sidecar backend: {}", sidecar_exe.display()));
 
     let child = std::process::Command::new(&sidecar_exe)
         .stdout(std::process::Stdio::piped())
@@ -164,11 +209,12 @@ async fn try_sidecar_backend(app: &AppHandle) -> Result<(), String> {
     }
 
     // Wait for backend to be healthy (sidecar takes a few seconds to extract + start)
+    let client = http_client(5);
     for i in 0..60 {
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-        if let Ok(resp) = reqwest::get(format!("http://{BACKEND_HOST}:{BACKEND_PORT}/health")).await {
+        if let Ok(resp) = client.get(format!("http://{BACKEND_HOST}:{BACKEND_PORT}/health")).send().await {
             if resp.status().is_success() {
-                println!("[JARVIS] Sidecar backend is ready (took ~{}ms)", i * 500);
+                crate::log(&format!("Sidecar backend ready (took ~{}ms)", i * 500));
                 set_status(BackendStatus::Running);
                 return Ok(());
             }
@@ -219,7 +265,7 @@ async fn try_python_backend() -> Result<(), String> {
         "python".to_string()
     };
 
-    println!("[JARVIS] Starting Python backend: {python} {}", backend_main.display());
+    crate::log(&format!("Starting Python backend: {python} {}", backend_main.display()));
 
     let child = std::process::Command::new(&python)
         .args(["-u", backend_main.to_str().unwrap()])
@@ -239,9 +285,10 @@ async fn try_python_backend() -> Result<(), String> {
     }
 
     // Wait for backend to be healthy
+    let client = http_client(5);
     for _ in 0..60 {
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-        if let Ok(resp) = reqwest::get(format!("http://{BACKEND_HOST}:{BACKEND_PORT}/health")).await {
+        if let Ok(resp) = client.get(format!("http://{BACKEND_HOST}:{BACKEND_PORT}/health")).send().await {
             if resp.status().is_success() {
                 set_status(BackendStatus::Running);
                 return Ok(());
