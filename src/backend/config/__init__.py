@@ -1,12 +1,39 @@
 """Backend configuration — loaded from .env file and env vars."""
 
 import os
+import sys
 from pathlib import Path
 from dataclasses import dataclass, field
 
+
+def _find_env_file() -> Path | None:
+    """Search for .env in multiple locations (supports PyInstaller bundles)."""
+    candidates = []
+
+    # 1. PyInstaller bundle: look next to the actual exe
+    if getattr(sys, 'frozen', False):
+        exe_dir = Path(sys.executable).resolve().parent
+        candidates.append(exe_dir / ".env")
+        # Also check %APPDATA%/JARVIS/.env
+        appdata = os.environ.get("APPDATA", "")
+        if appdata:
+            candidates.append(Path(appdata) / "JARVIS" / ".env")
+
+    # 2. Dev mode: .env in backend root (parent of config/)
+    candidates.append(Path(__file__).resolve().parent.parent / ".env")
+
+    # 3. Home directory fallback
+    candidates.append(Path.home() / ".jarvis" / ".env")
+
+    for p in candidates:
+        if p.exists():
+            return p
+    return None
+
+
 # Load .env file if present (before reading os.getenv)
-_env_path = Path(__file__).resolve().parent.parent / ".env"
-if _env_path.exists():
+_env_path = _find_env_file()
+if _env_path and _env_path.exists():
     for line in _env_path.read_text().splitlines():
         line = line.strip()
         if not line or line.startswith("#"):

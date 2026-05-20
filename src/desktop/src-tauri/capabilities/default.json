@@ -6,6 +6,8 @@
         "core:default",
         "global-shortcut:default",
         "shell:default",
+        "shell:allow-spawn",
+        "shell:allow-execute",
         "fs:default",
         "notification:default",
         "clipboard-manager:default",

@@ -78,7 +78,7 @@ async def health():
 
 def main():
     uvicorn.run(
-        "main:app",
+        app,
         host="0.0.0.0",
         port=8420,
         reload=False,

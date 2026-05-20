@@ -35,6 +35,14 @@ Thumbs.db
 *.so
 *.dylib
 
+# PyInstaller
+src/backend/dist/
+src/backend/build/
+src/backend/*.spec
+
+# Tauri sidecar binaries (large, built from source)
+src/desktop/src-tauri/binaries/
+
 # Frontend build output
 src/frontend/dist/
 
