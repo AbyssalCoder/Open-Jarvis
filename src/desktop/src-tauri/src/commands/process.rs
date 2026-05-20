@@ -19,6 +19,56 @@ static BACKEND: Mutex<Option<BackendState>> = Mutex::new(None);
 
 const BACKEND_PORT: u16 = 8420;
 const BACKEND_HOST: &str = "127.0.0.1";
+const OLLAMA_URL: &str = "http://127.0.0.1:11434";
+
+/// Ensure Ollama is running. If not, try to start it.
+pub async fn ensure_ollama_running() -> Result<(), String> {
+    // Check if already running
+    if let Ok(resp) = reqwest::get(format!("{OLLAMA_URL}/api/tags")).await {
+        if resp.status().is_success() {
+            return Ok(());
+        }
+    }
+
+    // Try to start ollama serve
+    let ollama_paths = vec![
+        "ollama".to_string(),
+        r"C:\Users\Aniket\AppData\Local\Programs\Ollama\ollama.exe".to_string(),
+        r"C:\Program Files\Ollama\ollama.exe".to_string(),
+    ];
+
+    let mut started = false;
+    for path in &ollama_paths {
+        match std::process::Command::new(path)
+            .arg("serve")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+        {
+            Ok(_) => {
+                started = true;
+                break;
+            }
+            Err(_) => continue,
+        }
+    }
+
+    if !started {
+        return Err("Could not find or start Ollama. Please install it from https://ollama.ai".into());
+    }
+
+    // Wait for Ollama to be ready (up to 15s)
+    for _ in 0..30 {
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        if let Ok(resp) = reqwest::get(format!("{OLLAMA_URL}/api/tags")).await {
+            if resp.status().is_success() {
+                return Ok(());
+            }
+        }
+    }
+
+    Err("Ollama started but not responding within 15s".into())
+}
 
 pub async fn start_python_backend(app: &AppHandle) -> Result<(), String> {
     set_status(BackendStatus::Starting);

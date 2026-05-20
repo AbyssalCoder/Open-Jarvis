@@ -8,7 +8,7 @@ mod hotkeys;
 mod state;
 mod tray;
 
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 fn main() {
     tauri::Builder::default()
@@ -29,12 +29,22 @@ fn main() {
             // Register global hotkeys
             hotkeys::register_hotkeys(app)?;
 
-            // Start Python backend process
+            // Auto-start Ollama + Python backend
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
+                // Step 1: Start Ollama if not running
+                let _ = handle.emit("boot:status", "Starting Ollama...");
+                if let Err(e) = commands::process::ensure_ollama_running().await {
+                    eprintln!("[JARVIS] Ollama start warning: {e}");
+                }
+
+                // Step 2: Start Python backend
+                let _ = handle.emit("boot:status", "Starting Backend...");
                 if let Err(e) = commands::process::start_python_backend(&handle).await {
                     eprintln!("[JARVIS] Failed to start Python backend: {e}");
                 }
+
+                let _ = handle.emit("boot:status", "Ready");
             });
 
             Ok(())
