@@ -1,6 +1,8 @@
 use serde::Serialize;
 use std::sync::Mutex;
 use tauri::{AppHandle, Manager};
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 
 #[derive(Serialize, Clone, PartialEq)]
 pub enum BackendStatus {
@@ -68,13 +70,14 @@ pub async fn ensure_ollama_running() -> Result<(), String> {
     let mut started = false;
     for path in &ollama_paths {
         crate::log(&format!("Trying Ollama from: {path}"));
-        match std::process::Command::new(path)
-            .arg("serve")
-            // Allow Tauri webview origin for CORS
+        let mut cmd = std::process::Command::new(path);
+        cmd.arg("serve")
             .env("OLLAMA_ORIGINS", "https://tauri.localhost,http://localhost:1420,http://localhost:5173,http://localhost:8420")
             .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
+            .stderr(std::process::Stdio::null());
+        #[cfg(target_os = "windows")]
+        cmd.creation_flags(0x00000208); // CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW
+        match cmd.spawn()
         {
             Ok(_child) => {
                 crate::log(&format!("Ollama spawned from: {path}"));
@@ -193,10 +196,12 @@ async fn try_sidecar_backend(app: &AppHandle) -> Result<(), String> {
 
     crate::log(&format!("Starting sidecar backend: {}", sidecar_exe.display()));
 
-    let child = std::process::Command::new(&sidecar_exe)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
+    let mut cmd = std::process::Command::new(&sidecar_exe);
+    cmd.stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(0x00000208); // CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW
+    let child = cmd.spawn()
         .map_err(|e| format!("Failed to start sidecar: {e}"))?;
 
     let pid = child.id();
@@ -267,12 +272,14 @@ async fn try_python_backend() -> Result<(), String> {
 
     crate::log(&format!("Starting Python backend: {python} {}", backend_main.display()));
 
-    let child = std::process::Command::new(&python)
-        .args(["-u", backend_main.to_str().unwrap()])
+    let mut cmd = std::process::Command::new(&python);
+    cmd.args(["-u", backend_main.to_str().unwrap()])
         .current_dir(&backend_dir)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(0x00000208); // CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW
+    let child = cmd.spawn()
         .map_err(|e| format!("Failed to start backend with {python}: {e}"))?;
 
     let pid = child.id();

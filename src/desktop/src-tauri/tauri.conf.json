@@ -25,7 +25,7 @@
             }
         ],
         "security": {
-            "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ws://localhost:8420 http://localhost:8420 http://localhost:11434; img-src 'self' data: blob:"
+            "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-eval'; connect-src 'self' ws://localhost:8420 http://localhost:8420 http://127.0.0.1:8420 http://localhost:11434 https://api.coingecko.com https://*.googleapis.com https://*; img-src 'self' data: blob: mediastream: http://localhost:8420; media-src 'self' blob: mediastream: http://localhost:8420"
         }
     },
     "bundle": {

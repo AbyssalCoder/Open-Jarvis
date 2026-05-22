@@ -149,12 +149,12 @@ class LLMRouter:
         for model in candidates:
             score = 0.0
 
-            # Prefer local over cloud (privacy + latency)
+            # Strongly prefer local over cloud (privacy + latency + no API limits)
             if model.provider in ("ollama", "llamacpp"):
-                score += 0.3
+                score += 0.6
 
             # Quality
-            score += model.quality_score * 0.3
+            score += model.quality_score * 0.2
 
             # Speed (normalized to 0–1)
             speed_norm = min(model.avg_tokens_per_second / 100, 1.0)

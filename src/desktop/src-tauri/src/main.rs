@@ -55,6 +55,41 @@ fn main() {
                 log("hotkeys OK");
             }
 
+            // Auto-allow camera and microphone permissions in WebView2
+            #[cfg(target_os = "windows")]
+            {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.with_webview(|webview| {
+                        unsafe {
+                            use webview2_com::PermissionRequestedEventHandler;
+                            use webview2_com::Microsoft::Web::WebView2::Win32::*;
+                            if let Ok(core) = webview.controller().CoreWebView2() {
+                                let handler = PermissionRequestedEventHandler::create(
+                                    Box::new(|_sender, args| {
+                                        if let Some(args) = args {
+                                            let mut kind = COREWEBVIEW2_PERMISSION_KIND(0);
+                                            if args.PermissionKind(&mut kind).is_ok() {
+                                                if kind == COREWEBVIEW2_PERMISSION_KIND_CAMERA
+                                                    || kind == COREWEBVIEW2_PERMISSION_KIND_MICROPHONE
+                                                {
+                                                    let _ = args.SetState(
+                                                        COREWEBVIEW2_PERMISSION_STATE_ALLOW,
+                                                    );
+                                                }
+                                            }
+                                        }
+                                        Ok(())
+                                    }),
+                                );
+                                let mut token = std::mem::zeroed();
+                                let _ = core.add_PermissionRequested(&handler, &mut token);
+                                log("WebView2 camera/mic permissions auto-allowed");
+                            }
+                        }
+                    });
+                }
+            }
+
             // Auto-start Ollama + Python backend
             let handle = app.handle().clone();
             log("spawning async boot task");
@@ -100,6 +135,12 @@ fn main() {
             commands::process::restart_backend,
             commands::file::read_file_safe,
             commands::file::write_file_safe,
+            commands::api_proxy::proxy_get,
+            commands::api_proxy::proxy_post,
+            commands::api_proxy::proxy_stream_chat,
+            commands::api_proxy::proxy_tts,
+            commands::api_proxy::proxy_vision,
+            commands::api_proxy::proxy_vision_detect,
         ])
         .run(tauri::generate_context!())
         .expect("error while running JARVIS");

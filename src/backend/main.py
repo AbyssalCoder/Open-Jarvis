@@ -35,12 +35,38 @@ async def lifespan(app: FastAPI):
     event_bus.emit("system.ready", {})
     print("[JARVIS] Backend ready on port 8420")
 
+    # Start background reminder checker
+    reminder_task = asyncio.create_task(_check_reminders_loop())
+
     yield
 
     # Shutdown
     print("[JARVIS] Shutting down...")
+    reminder_task.cancel()
     training_collector.flush()
     await agent_registry.shutdown()
+
+
+async def _check_reminders_loop():
+    """Background loop: check for due reminders every 30s and emit events."""
+    from datetime import datetime
+    from agents.tools import _load_reminders, _save_reminders
+    while True:
+        try:
+            await asyncio.sleep(30)
+            reminders = _load_reminders()
+            now = datetime.now()
+            due = [r for r in reminders if datetime.fromisoformat(r["due"]) <= now]
+            if due:
+                remaining = [r for r in reminders if datetime.fromisoformat(r["due"]) > now]
+                _save_reminders(remaining)
+                for r in due:
+                    event_bus.emit("reminder.due", {"text": r["text"], "due": r["due"]})
+                    print(f"[JARVIS] Reminder due: {r['text']}")
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            print(f"[JARVIS] Reminder check error: {e}")
 
 
 app = FastAPI(

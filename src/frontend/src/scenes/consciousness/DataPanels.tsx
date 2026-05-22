@@ -3,6 +3,7 @@ import { useFrame } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { useSystemStore, useAIStore, useTaskStore, type ActiveTask } from '@/core/store';
+import { apiFetch } from '@/utils/tauriFetch';
 
 /* ════════════════════════════════════════════════════════════
    Floating holographic data panels around the engine core.
@@ -133,16 +134,18 @@ function WeatherPanel() {
     useEffect(() => {
         async function load() {
             try {
-                const r = await fetch('https://wttr.in/?format=j1');
-                const d = await r.json();
-                const c = d.current_condition?.[0];
-                const a = d.nearest_area?.[0];
-                if (c) setW({
-                    temp: parseInt(c.temp_C, 10),
-                    cond: c.weatherDesc?.[0]?.value || 'Unknown',
-                    icon: weatherIcon(parseInt(c.weatherCode, 10)),
-                    city: a?.areaName?.[0]?.value || 'Local',
-                });
+                const r = await apiFetch('/api/weather');
+                if (r.ok) {
+                    const d = await r.json();
+                    setW({
+                        temp: d.temp,
+                        cond: d.condition,
+                        icon: weatherIcon(d.code),
+                        city: d.city,
+                    });
+                } else {
+                    setW({ temp: 0, cond: 'No data', icon: '—', city: 'Offline' });
+                }
             } catch { setW({ temp: 0, cond: 'No data', icon: '—', city: 'Offline' }); }
         }
         load();
@@ -178,27 +181,46 @@ function weatherIcon(code: number): string {
     return '🌤️';
 }
 
-/* ─── Stocks ─── */
+/* ─── Stocks / Crypto ─── */
 function StocksPanel() {
     const [stocks, setStocks] = useState([
-        { sym: 'AAPL', price: '—', chg: '—', up: true },
-        { sym: 'MSFT', price: '—', chg: '—', up: true },
-        { sym: 'GOOGL', price: '—', chg: '—', up: true },
-        { sym: 'TSLA', price: '—', chg: '—', up: false },
+        { sym: 'BTC', price: '—', chg: '—', up: true },
+        { sym: 'ETH', price: '—', chg: '—', up: true },
+        { sym: 'SOL', price: '—', chg: '—', up: true },
+        { sym: 'DOGE', price: '—', chg: '—', up: false },
     ]);
 
     useEffect(() => {
-        const bases: Record<string, number> = { AAPL: 198.5, MSFT: 442.3, GOOGL: 178.8, TSLA: 245.1 };
-        function tick() {
-            setStocks(prev => prev.map(s => {
-                const base = bases[s.sym] || 100;
-                const drift = (Math.random() - 0.48) * 2;
-                const price = base + drift;
-                return { ...s, price: price.toFixed(2), chg: `${drift >= 0 ? '+' : ''}${((drift / base) * 100).toFixed(2)}%`, up: drift >= 0 };
-            }));
+        async function fetchPrices() {
+            try {
+                const resp = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,solana,dogecoin&vs_currencies=usd&include_24hr_change=true');
+                if (resp.ok) {
+                    const data = await resp.json();
+                    const map: Record<string, { id: string }> = {
+                        BTC: { id: 'bitcoin' },
+                        ETH: { id: 'ethereum' },
+                        SOL: { id: 'solana' },
+                        DOGE: { id: 'dogecoin' },
+                    };
+                    setStocks(prev => prev.map(s => {
+                        const coin = data[map[s.sym]?.id];
+                        if (coin) {
+                            const price = coin.usd;
+                            const change = coin.usd_24h_change || 0;
+                            return {
+                                ...s,
+                                price: price >= 1000 ? `${(price / 1000).toFixed(1)}K` : price.toFixed(2),
+                                chg: `${change >= 0 ? '+' : ''}${change.toFixed(2)}%`,
+                                up: change >= 0,
+                            };
+                        }
+                        return s;
+                    }));
+                }
+            } catch { /* use fallback */ }
         }
-        tick();
-        const id = setInterval(tick, 8000);
+        fetchPrices();
+        const id = setInterval(fetchPrices, 60000); // refresh every minute
         return () => clearInterval(id);
     }, []);
 

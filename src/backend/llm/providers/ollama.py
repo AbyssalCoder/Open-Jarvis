@@ -30,6 +30,10 @@ class OllamaProvider:
             "model": model,
             "messages": messages,
             "stream": True,
+            "options": {
+                "num_gpu": -1,       # Offload ALL layers to GPU (VRAM) instead of RAM
+                "num_ctx": 2048,     # Smaller context window = less memory
+            },
         }
 
         try:

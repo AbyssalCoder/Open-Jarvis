@@ -33,7 +33,7 @@ export function AICore() {
         // Smooth ramps
         const spkTarget = ttsPlaying ? 1 : 0;
         spkSmooth.current += (spkTarget - spkSmooth.current) * 0.1;
-        const actTarget = isThinking ? 1 : 0.2;
+        const actTarget = isThinking ? 1 : 0.3;
         actSmooth.current += (actTarget - actSmooth.current) * 0.05;
 
         // Whole engine slow rotation
@@ -41,18 +41,23 @@ export function AICore() {
             groupRef.current.rotation.y = t * 0.03;
         }
 
-        // Core vibration when speaking
+        // Core vibration when speaking — much more dramatic
         if (coreRef.current) {
             const spk = spkSmooth.current;
+            const act = actSmooth.current;
             const s = 1 +
-                Math.sin(t * 22) * 0.06 * spk +
-                Math.sin(t * 35 + 1.3) * 0.04 * spk +
-                Math.sin(t * 48 + 2.7) * 0.025 * spk +
-                Math.sin(t * 4) * 0.015 * actSmooth.current +
-                (Math.random() - 0.5) * 0.04 * spk;
+                Math.sin(t * 22) * 0.08 * spk +
+                Math.sin(t * 35 + 1.3) * 0.06 * spk +
+                Math.sin(t * 48 + 2.7) * 0.04 * spk +
+                Math.sin(t * 4) * 0.03 * act +
+                (Math.random() - 0.5) * 0.06 * spk;
             coreRef.current.scale.setScalar(s);
-            coreRef.current.position.x = (Math.random() - 0.5) * 0.03 * spk;
-            coreRef.current.position.y = (Math.random() - 0.5) * 0.03 * spk;
+            coreRef.current.position.x = (Math.random() - 0.5) * 0.05 * spk;
+            coreRef.current.position.y = (Math.random() - 0.5) * 0.05 * spk;
+
+            // Boost core glow when speaking or thinking
+            const mat = coreRef.current.material as THREE.MeshBasicMaterial;
+            mat.opacity = 0.85 + spk * 0.15 + act * 0.1;
         }
     });
 
@@ -60,13 +65,14 @@ export function AICore() {
         <group ref={groupRef} rotation={[0, 0, Math.PI / 2]}>
             {/* ════════ GLOWING CORE SPHERE (small, not overwhelming) ════════ */}
             <mesh ref={coreRef}>
-                <sphereGeometry args={[0.1, 32, 32]} />
-                <meshBasicMaterial color="#00DDFF" transparent opacity={0.85}
+                <sphereGeometry args={[0.12, 32, 32]} />
+                <meshBasicMaterial color="#00EEFF" transparent opacity={0.95}
                     blending={THREE.AdditiveBlending} />
             </mesh>
-            {/* Core glow halo — small and subtle so discs show through */}
-            <CoreGlow radius={0.16} opacity={0.3} color="#00CCEE" />
-            <CoreGlow radius={0.22} opacity={0.12} color="#0066AA" />
+            {/* Core glow halo — brighter to be more visible */}
+            <CoreGlow radius={0.2} opacity={0.5} color="#00DDFF" />
+            <CoreGlow radius={0.3} opacity={0.25} color="#0088CC" />
+            <CoreGlow radius={0.45} opacity={0.12} color="#0066AA" />
 
             {/* ════════ HORIZONTAL ENERGY BEAM ════════ */}
             <EnergyBeam />
@@ -256,8 +262,8 @@ function ThickDisc({ z, innerR, outerR, thickness, teeth, speed, color, idx }: {
             {/* Main ring body — SOLID visible disc */}
             <mesh>
                 <cylinderGeometry args={[outerR, outerR, thickness, 48, 1, false]} />
-                <meshStandardMaterial color={color} transparent opacity={0.55}
-                    metalness={0.8} roughness={0.3} emissive={color} emissiveIntensity={0.15}
+                <meshStandardMaterial color={color} transparent opacity={0.65}
+                    metalness={0.8} roughness={0.3} emissive={color} emissiveIntensity={0.35}
                     side={THREE.DoubleSide} />
             </mesh>
             {/* Inner cutout (darker ring to fake hollow center) */}
@@ -268,7 +274,7 @@ function ThickDisc({ z, innerR, outerR, thickness, teeth, speed, color, idx }: {
             {/* Ring edge highlight */}
             <mesh>
                 <torusGeometry args={[outerR, 0.008, 6, 48]} />
-                <meshBasicMaterial color={color} transparent opacity={0.5}
+                <meshBasicMaterial color={color} transparent opacity={0.7}
                     blending={THREE.AdditiveBlending} depthWrite={false} />
             </mesh>
             <mesh position={[0, thickness / 2, 0]} rotation={[Math.PI / 2, 0, 0]}>

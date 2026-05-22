@@ -9,6 +9,7 @@ export function VoiceOverlay() {
     const isListening = useVoiceStore((s) => s.isListening);
     const ttsPlaying = useVoiceStore((s) => s.ttsPlaying);
     const transcript = useVoiceStore((s) => s.partialTranscript);
+    const songMode = useVoiceStore((s) => s.songMode);
 
     if (!voiceEngine.isSupported) return null;
 
@@ -110,11 +111,33 @@ export function VoiceOverlay() {
                         <span
                             className="text-[9px] font-mono tracking-[0.2em]"
                             style={{
-                                color: isListening ? '#00D4FF' : '#FF9500',
+                                color: songMode ? '#FF69B4' : isListening ? '#00D4FF' : '#FF9500',
                             }}
                         >
-                            {isListening ? 'VOICE ACTIVE' : 'PROCESSING'}
+                            {songMode ? '🎵 SONG MODE — SING NOW' : isListening ? 'VOICE ACTIVE' : 'PROCESSING'}
                         </span>
+
+                        {/* Song mode done button */}
+                        {songMode && (
+                            <button
+                                onClick={() => voiceEngine.exitSongMode()}
+                                className="pointer-events-auto"
+                                style={{
+                                    marginTop: 4,
+                                    background: 'rgba(255,105,180,0.15)',
+                                    border: '1px solid rgba(255,105,180,0.4)',
+                                    color: '#FF69B4',
+                                    padding: '3px 12px',
+                                    borderRadius: 4,
+                                    cursor: 'pointer',
+                                    fontFamily: 'monospace',
+                                    fontSize: 9,
+                                    letterSpacing: 1,
+                                }}
+                            >
+                                DONE SINGING
+                            </button>
+                        )}
                     </div>
                 </div>
             )}

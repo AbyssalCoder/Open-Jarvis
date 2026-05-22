@@ -6,8 +6,8 @@ import {
     type ReactNode,
 } from 'react';
 import { useSystemStore, useAIStore, useAgentStore } from '@/core/store';
+import { apiFetch } from '@/utils/tauriFetch';
 
-const BACKEND_URL = 'http://localhost:8420';
 const BACKEND_WS_URL = 'ws://localhost:8420/ws';
 
 interface WSContextValue {
@@ -104,13 +104,13 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         const pollHealth = async () => {
             const store = useSystemStore.getState();
             try {
-                const r = await fetch(`${BACKEND_URL}/health`, { signal: AbortSignal.timeout(3000) });
+                const r = await apiFetch('/health', { signal: AbortSignal.timeout(3000) });
                 store.setBackendConnected(r.ok);
             } catch {
                 store.setBackendConnected(false);
             }
             try {
-                const r = await fetch(`${BACKEND_URL}/api/ollama/status`, { signal: AbortSignal.timeout(3000) });
+                const r = await apiFetch('/api/ollama/status', { signal: AbortSignal.timeout(3000) });
                 if (r.ok) {
                     const d = await r.json();
                     store.setOllamaConnected(d.status === 'ok');
@@ -120,6 +120,19 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
             } catch {
                 store.setOllamaConnected(false);
             }
+            // Poll system metrics
+            try {
+                const r = await apiFetch('/api/system', { signal: AbortSignal.timeout(3000) });
+                if (r.ok) {
+                    const d = await r.json();
+                    store.updateMetrics({
+                        cpuUsage: d.cpu,
+                        ramUsedMB: d.ram_used_mb,
+                        ramTotalMB: d.ram_total_mb,
+                        gpuUsage: d.gpu,
+                    });
+                }
+            } catch { /* ignore */ }
         };
 
         pollHealth();

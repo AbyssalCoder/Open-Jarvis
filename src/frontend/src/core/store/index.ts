@@ -81,7 +81,7 @@ export const useAgentStore = create<AgentSlice>()((set) => ({
 }));
 
 // ---- Panel Store ----
-export type PanelId = 'chat' | 'terminal' | 'files' | 'settings' | 'agents' | 'memory';
+export type PanelId = 'chat' | 'terminal' | 'files' | 'settings' | 'agents' | 'memory' | 'history' | 'activity';
 
 interface PanelSlice {
     openPanels: PanelId[];
@@ -110,11 +110,16 @@ interface VoiceSlice {
     micLevel: number;
     ttsPlaying: boolean;
     partialTranscript: string;
+    songMode: boolean;
+    songBuffer: string;
     setVoiceActive: (v: boolean) => void;
     setListening: (v: boolean) => void;
     setMicLevel: (v: number) => void;
     setTTSPlaying: (v: boolean) => void;
     setPartialTranscript: (v: string) => void;
+    setSongMode: (v: boolean) => void;
+    setSongBuffer: (v: string) => void;
+    appendSongBuffer: (v: string) => void;
 }
 
 export const useVoiceStore = create<VoiceSlice>()((set) => ({
@@ -123,11 +128,31 @@ export const useVoiceStore = create<VoiceSlice>()((set) => ({
     micLevel: 0,
     ttsPlaying: false,
     partialTranscript: '',
+    songMode: false,
+    songBuffer: '',
     setVoiceActive: (v) => set({ voiceActive: v }),
     setListening: (v) => set({ isListening: v }),
     setMicLevel: (v) => set({ micLevel: v }),
     setTTSPlaying: (v) => set({ ttsPlaying: v }),
     setPartialTranscript: (v) => set({ partialTranscript: v }),
+    setSongMode: (v) => set({ songMode: v, songBuffer: v ? '' : '' }),
+    setSongBuffer: (v) => set({ songBuffer: v }),
+    appendSongBuffer: (v) => set((s) => ({ songBuffer: s.songBuffer ? s.songBuffer + ' ' + v : v })),
+}));
+
+// ---- Vision Store (global webcam state) ----
+interface VisionSlice {
+    showWebcam: boolean;
+    webcamQuery: string;
+    openWebcam: (query: string) => void;
+    closeWebcam: () => void;
+}
+
+export const useVisionStore = create<VisionSlice>()((set) => ({
+    showWebcam: false,
+    webcamQuery: 'Describe what you see',
+    openWebcam: (query) => set({ showWebcam: true, webcamQuery: query }),
+    closeWebcam: () => set({ showWebcam: false }),
 }));
 
 // ---- System Store ----
@@ -218,5 +243,67 @@ export const useSettingsStore = create<SettingsSlice>()(
             setAdaptiveQuality: (v) => set({ adaptiveQuality: v }),
         }),
         { name: 'jarvis-settings' }
+    )
+);
+
+// ---- Activity Log Store ----
+export interface ActivityEntry {
+    id: string;
+    tool: string;
+    status: 'running' | 'done' | 'error';
+    message: string;
+    detail?: string;
+    timestamp: number;
+}
+
+interface ActivitySlice {
+    activities: ActivityEntry[];
+    addActivity: (entry: ActivityEntry) => void;
+    updateActivity: (id: string, patch: Partial<ActivityEntry>) => void;
+    clearActivities: () => void;
+}
+
+export const useActivityStore = create<ActivitySlice>()((set) => ({
+    activities: [],
+    addActivity: (entry) =>
+        set((s) => ({ activities: [entry, ...s.activities].slice(0, 100) })),
+    updateActivity: (id, patch) =>
+        set((s) => ({
+            activities: s.activities.map((a) => (a.id === id ? { ...a, ...patch } : a)),
+        })),
+    clearActivities: () => set({ activities: [] }),
+}));
+
+// ---- Chat History Store (persisted) ----
+export interface ChatMessage {
+    role: 'user' | 'assistant';
+    content: string;
+    timestamp: number;
+}
+
+export interface ChatSession {
+    id: string;
+    title: string;
+    messages: ChatMessage[];
+    createdAt: number;
+}
+
+interface ChatHistorySlice {
+    sessions: ChatSession[];
+    addSession: (session: ChatSession) => void;
+    clearSessions: () => void;
+}
+
+export const useChatHistoryStore = create<ChatHistorySlice>()(
+    persist(
+        (set) => ({
+            sessions: [],
+            addSession: (session) =>
+                set((s) => ({
+                    sessions: [session, ...s.sessions].slice(0, 50),
+                })),
+            clearSessions: () => set({ sessions: [] }),
+        }),
+        { name: 'jarvis-chat-history' }
     )
 );

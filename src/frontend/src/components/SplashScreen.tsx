@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { apiFetch } from '@/utils/tauriFetch';
 
 interface BootStep {
     id: string;
@@ -16,7 +17,6 @@ const BOOT_STEPS: BootStep[] = [
 ];
 
 const OLLAMA_URL = 'http://localhost:11434';
-const BACKEND_URL = 'http://localhost:8420';
 
 export function SplashScreen({ onReady }: { onReady: () => void }) {
     const [steps, setSteps] = useState<BootStep[]>(BOOT_STEPS);
@@ -50,7 +50,7 @@ export function SplashScreen({ onReady }: { onReady: () => void }) {
             for (let i = 0; i < 60; i++) {
                 if (cancelled) return;
                 try {
-                    const resp = await fetch(`${BACKEND_URL}/health`, { signal: AbortSignal.timeout(2000) });
+                    const resp = await apiFetch('/health', { signal: AbortSignal.timeout(2000) });
                     if (resp.ok) { backendReady = true; break; }
                 } catch { /* retry */ }
                 setProgress(20 + Math.min(i, 25));
@@ -73,7 +73,7 @@ export function SplashScreen({ onReady }: { onReady: () => void }) {
                 try {
                     // Try backend proxy first (works in Tauri, avoids CORS)
                     if (backendReady) {
-                        const resp = await fetch(`${BACKEND_URL}/api/ollama/status`, { signal: AbortSignal.timeout(3000) });
+                        const resp = await apiFetch('/api/ollama/status', { signal: AbortSignal.timeout(3000) });
                         if (resp.ok) {
                             const data = await resp.json();
                             if (data.status === 'ok') { ollamaReady = true; break; }
@@ -100,7 +100,7 @@ export function SplashScreen({ onReady }: { onReady: () => void }) {
 
             if (backendReady) {
                 try {
-                    const resp = await fetch(`${BACKEND_URL}/api/models`, { signal: AbortSignal.timeout(5000) });
+                    const resp = await apiFetch('/api/models', { signal: AbortSignal.timeout(5000) });
                     if (resp.ok) {
                         const data = await resp.json();
                         const modelCount = data?.models?.length || 0;
