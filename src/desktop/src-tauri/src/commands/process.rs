@@ -213,9 +213,9 @@ async fn try_sidecar_backend(app: &AppHandle) -> Result<(), String> {
         });
     }
 
-    // Wait for backend to be healthy (sidecar takes a few seconds to extract + start)
+    // Wait for backend to be healthy (sidecar is ~2.9GB onefile, extraction can take 60-90s)
     let client = http_client(5);
-    for i in 0..60 {
+    for i in 0..240 {
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
         if let Ok(resp) = client.get(format!("http://{BACKEND_HOST}:{BACKEND_PORT}/health")).send().await {
             if resp.status().is_success() {
@@ -227,7 +227,7 @@ async fn try_sidecar_backend(app: &AppHandle) -> Result<(), String> {
     }
 
     set_status(BackendStatus::Error);
-    Err("Sidecar backend failed to become healthy within 30s".into())
+    Err("Sidecar backend failed to become healthy within 120s".into())
 }
 
 /// Dev mode: find and run the Python backend directly

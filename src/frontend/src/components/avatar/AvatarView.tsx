@@ -175,8 +175,8 @@ function VRMModel({ speaking, thinking, listening, onLoaded }: {
                 VRMUtils.removeUnnecessaryVertices(vrm.scene);
 
                 // Position model so face is centered in camera view
-                // VRM model ~1.7 units tall. At y=-1.0, head at ~0.6, camera at y=0.5 sees face
-                vrm.scene.position.set(0, -1.0, 0);
+                // VRM model ~1.7 units tall. At y=-1.55, head at ~0.15, camera at y=0.65 sees face
+                vrm.scene.position.set(0, -1.55, 0);
                 vrm.scene.rotation.y = Math.PI; // face camera
 
                 // === CRITICAL: Apply natural pose (fix T-pose) ===
@@ -340,7 +340,7 @@ function AvatarScene({ speaking, thinking, listening, onLoaded }: {
 }) {
     return (
         <Canvas
-            camera={{ position: [0, 0.5, 1.2], fov: 30 }}
+            camera={{ position: [0, 0.65, 1.2], fov: 28 }}
             style={{ position: 'absolute', inset: 0, zIndex: 1 }}
             gl={{
                 antialias: true,
