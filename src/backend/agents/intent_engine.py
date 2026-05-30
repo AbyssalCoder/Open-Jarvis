@@ -24,17 +24,30 @@ def _regex_detect(text: str) -> Optional[tuple[str, dict]]:
 
     # ── Open App / Website ──────────────────────────────────────────
     open_pats = [
-        r'(?:open|go\s+to|launch)\s+(youtube|amazon|flipkart|spotify|instagram|github|google|whatsapp|gmail|twitter|linkedin|reddit|chatgpt|x|blinkit|zepto|zomato|swiggy|myntra|meesho|ajio|bigbasket)\b',
+        r'(?:open|go\s+to|launch)\s+(youtube|amazon\s*music|amazon|flipkart|spotify|instagram|github|google|whatsapp|gmail|twitter|linkedin|reddit|chatgpt|x|blinkit|zepto|zomato|swiggy|myntra|meesho|ajio|bigbasket|jules)\b',
     ]
     for pat in open_pats:
         m = re.search(pat, lower)
         if m:
-            return ("open_app", {"name": m.group(1)})
+            name = m.group(1).strip()
+            # "amazon music" → launch_app (desktop app)
+            if name == "amazon music":
+                return ("launch_app", {"name": "Amazon Music"})
+            # "jules" → launch_app (or terminal)
+            if name == "jules":
+                return ("launch_app", {"name": "jules"})
+            return ("open_app", {"name": name})
 
     # Explicit URL
     url_match = re.search(r'open\s+(https?://\S+)', lower)
     if url_match:
         return ("open_url", {"url": url_match.group(1)})
+
+    # ── Play on Amazon Music ──────────────────────────────────────
+    amz_music = re.search(r'play\s+(.+?)\s+on\s+amazon\s*music', lower)
+    if amz_music:
+        song = amz_music.group(1).strip()
+        return ("launch_app", {"name": f"Amazon Music --play {song}"})
 
     # ── YouTube Play ────────────────────────────────────────────────
     yt_pats = [
@@ -76,11 +89,17 @@ def _regex_detect(text: str) -> Optional[tuple[str, dict]]:
         message = msg_match.group(1).strip() if msg_match else ""
         return ("mobile_sync", {"action": "whatsapp", "message": message, "to": to})
 
-    # ── Vision / Camera ─────────────────────────────────────────────
+    # ── Open Camera App (device control) ──────────────────────────
+    camera_open_words = ["open camera", "open the camera", "open webcam", "open the webcam",
+                         "launch camera", "start camera"]
+    if any(w in lower for w in camera_open_words):
+        return ("launch_app", {"name": "camera"})
+
+    # ── Vision / Camera Analysis ────────────────────────────────────
     vision_words = ["analyze this", "what is this", "look at this", "what do you see",
                     "in front of me", "scan this", "capture and analyze", "use camera",
-                    "use the camera", "use my camera", "open camera", "open the camera",
-                    "open webcam", "open the webcam", "what am i holding",
+                    "use the camera", "use my camera",
+                    "what am i holding",
                     "take a photo", "take a picture", "take photo", "take picture",
                     "what is in front", "identify this", "what can you see", "webcam",
                     "look at me", "see me", "my face", "click a picture", "click a photo",
@@ -352,19 +371,51 @@ def _regex_detect(text: str) -> Optional[tuple[str, dict]]:
                                  "open vscode and write", "write a program", "write a script", "code for"]):
         return ("write_code", {"filename": "main.py", "code": "", "folder": "", "language": text})
 
+    # ── AI Image Generation ───────────────────────────────────────
+    # Must come BEFORE draw/paint to catch "generate image", "create image", "imagine"
+    img_gen_words = [
+        "generate an image", "generate image", "generate a picture", "generate picture",
+        "create an image", "create image", "create a picture", "create picture",
+        "make an image", "make image", "make a picture", "make picture",
+        "imagine ", "make me an image", "create me an image",
+        "generate art", "create art", "ai image", "ai art",
+        "make me a picture", "generate me a", "create me a picture",
+    ]
+    if any(w in lower for w in img_gen_words):
+        prompt_match = re.search(r'(?:generate|create|make|imagine)\s+(?:an?\s+)?(?:image|picture|art|photo|artwork)\s+(?:of\s+|about\s+|showing\s+|with\s+)?(.+)', lower)
+        prompt = prompt_match.group(1).strip() if prompt_match else text
+        return ("generate_image", {"prompt": prompt})
+
+    # ── Draw / Paint (splits: "draw on paint" vs "draw [subject]") ──
+    # "draw on paint" / "draw in paint" / "draw X in paint" → draw_diagram
+    paint_draw = re.search(r'(?:draw|paint|sketch)\s+(.+?)\s+(?:on|in)\s+(?:ms\s+)?paint', lower)
+    if paint_draw:
+        subject = paint_draw.group(1).strip()
+        if subject in ("something", "it", "a drawing"):
+            subject = text
+        return ("draw_diagram", {"subject": subject, "description": text})
+    if re.search(r'(?:draw|paint|sketch)\s+(?:on|in)\s+(?:ms\s+)?paint', lower):
+        return ("draw_diagram", {"subject": text, "description": text})
+    # "draw me X" / "draw X" without "paint" → generate_image
+    draw_gen = re.search(r'(?:draw|sketch|illustrate)\s+(?:me\s+)?(?:a\s+|an\s+|the\s+)?(.+)', lower)
+    if draw_gen:
+        subject = draw_gen.group(1).strip()
+        if subject and len(subject) > 1 and "paint" not in subject:
+            return ("generate_image", {"prompt": subject})
+
+    # ── Type in App (device control) ────────────────────────────────
+    type_app_match = re.search(r'(?:type|write)\s+(?:in|into|on)\s+(notepad|word|wordpad|excel|powerpoint|paint|cmd|powershell|terminal|vscode|vs code|code)(?:\s+(.+))?', lower)
+    if type_app_match:
+        app = type_app_match.group(1).strip()
+        content = type_app_match.group(2).strip() if type_app_match.group(2) else text
+        return ("type_in_app", {"app_name": app, "text": content})
+
     # ── Write Document (Notepad/Word) ───────────────────────────────
     if any(w in lower for w in ["write in notepad", "type in notepad", "open notepad and write",
                                  "write in word", "type in word", "create a document",
                                  "write a document", "make a document"]):
         app = "word" if "word" in lower else "notepad"
         return ("write_document", {"text": text, "app": app})
-
-    # ── Draw / Paint ────────────────────────────────────────────────
-    draw_match = re.search(r'(?:draw|paint|sketch|illustrate)\s+(?:a\s+|an\s+|me\s+(?:a\s+)?|the\s+)?(.+?)(?:\s+in\s+(?:ms\s+)?paint)?$', lower)
-    if draw_match:
-        subject = draw_match.group(1).strip()
-        if subject and len(subject) > 1:
-            return ("draw_diagram", {"subject": subject, "description": text})
 
     # ── Browser site search ─────────────────────────────────────────
     site_search = re.search(r'search\s+(?:for\s+)?(.+?)\s+on\s+(amazon|flipkart|youtube|google|github|stackoverflow)', lower)
@@ -381,7 +432,8 @@ def _regex_detect(text: str) -> Optional[tuple[str, dict]]:
                    "task manager", "control panel", "settings", "file explorer", "explorer",
                    "word", "excel", "powerpoint", "outlook", "teams", "discord", "chrome",
                    "firefox", "edge", "brave", "vscode", "vs code", "visual studio",
-                   "steam", "vlc", "obs", "telegram", "signal", "zoom", "slack", "notion"]
+                   "steam", "vlc", "obs", "telegram", "signal", "zoom", "slack", "notion",
+                   "camera", "webcam", "amazon music", "jules"]
     launch_match = re.search(r'(?:launch|start|run|open)\s+(?:the\s+)?(?:app\s+)?(?:called\s+)?(.+?)(?:\s+app(?:lication)?)?$', lower)
     if launch_match:
         target = launch_match.group(1).strip()
@@ -400,7 +452,8 @@ def _regex_detect(text: str) -> Optional[tuple[str, dict]]:
             desktop_kw = ["notepad", "calculator", "paint", "terminal", "settings",
                           "explorer", "word", "excel", "chrome", "firefox", "edge",
                           "brave", "vscode", "code", "discord", "steam", "vlc", "obs",
-                          "telegram", "zoom", "slack", "notion", "task manager"]
+                          "telegram", "zoom", "slack", "notion", "task manager",
+                          "camera", "webcam", "amazon music", "jules"]
             if any(dk in target for dk in desktop_kw):
                 return ("launch_app", {"name": target})
             return ("open_app", {"name": target})
@@ -424,8 +477,12 @@ browser_action, study_help, research_topic, translate, define, news, calculate,
 joke, system_control, clipboard, speed_test, qr_code, ip_info, price, timer,
 draft_email, summarize, create_folder, write_code, write_document, draw_diagram,
 check_gmail, check_whatsapp, git_commit, git_status, git_push, git_pull,
-run_python, create_project, mobile_sync, read_file, write_file, open_url, none.
+run_python, create_project, mobile_sync, read_file, write_file, open_url,
+generate_image, type_in_app, none.
 
+Use "generate_image" when the user wants to create/generate/imagine an image or picture.
+Use "draw_diagram" only when the user explicitly says "draw in paint" or "draw on paint".
+Use "type_in_app" when the user wants to type/write text into an existing application.
 Use "none" for general conversation, coding help, opinions, explanations.
 Respond with ONLY valid JSON: {"tool": "name", "args": {"key": "value"}}"""
 

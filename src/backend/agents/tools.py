@@ -288,27 +288,8 @@ async def _ollama_describe(yolo_result: str, query: str) -> str:
 
 
 async def vision_analyze(query: str = "Describe what you see") -> str:
-    """Capture the screen and analyze with multi-model pipeline (YOLO + GroundingDINO + LLM)."""
-    try:
-        import mss
-        from vision.pipeline import get_vision_pipeline
-
-        # Capture screen
-        with mss.mss() as sct:
-            monitor = sct.monitors[1]
-            img = sct.grab(monitor)
-            from mss.tools import to_png
-            png_bytes = to_png(img.rgb, img.size)
-
-        # Use the multi-model pipeline
-        pipeline = get_vision_pipeline()
-        result = await pipeline.analyze(png_bytes, query)
-        return result.get("result", "No analysis returned")
-
-    except ImportError:
-        return "Vision requires 'mss' package. Install with: pip install mss"
-    except Exception as e:
-        return f"Vision analysis error: {e}"
+    """Capture the screen and analyze with vision model or YOLO + LLM pipeline."""
+    return await vision_analyze_webcam(image_data=None, query=query)
 
 
 # ─── Productivity Scheduler ────────────────────────────────────────────────
@@ -483,11 +464,11 @@ async def media_control(action: str) -> str:
 # ─── Mobile Sync / Notifications ──────────────────────────────────────────
 
 OWNER_PROFILE = {
-    "name": "Aniket",
-    "email": "aniketsupermails2005@gmail.com",
-    "phone": "+91 7980458591",
-    "instagram": "@_alive_phoenix_",
-    "github": "AbyssalCoder",
+    "name": os.getenv("OWNER_NAME", "Aniket"),
+    "email": os.getenv("OWNER_EMAIL", os.getenv("JARVIS_EMAIL_USER", "")),
+    "phone": os.getenv("OWNER_PHONE", ""),
+    "instagram": os.getenv("OWNER_INSTAGRAM", ""),
+    "github": os.getenv("OWNER_GITHUB", ""),
 }
 
 
@@ -875,6 +856,9 @@ async def launch_app(name: str) -> str:
         "notion": "notion",
         "spotify": "spotify",
         "whatsapp": "whatsapp",
+        "amazon music": "Amazon Music",
+        "camera": "microsoft.windows.camera:",
+        "webcam": "microsoft.windows.camera:",
     }
 
     for key, cmd in direct_apps.items():
@@ -939,7 +923,20 @@ def _ensure_playwright_browsers():
 
 
 # Keep Playwright references alive so browsers don't close on function return
+# Limit to 3 to prevent memory leaks
 _pw_refs = []
+_MAX_BROWSERS = 3
+
+
+async def _cleanup_old_browsers():
+    """Close oldest browsers when limit exceeded."""
+    global _pw_refs
+    while len(_pw_refs) > _MAX_BROWSERS:
+        old_pw = _pw_refs.pop(0)
+        try:
+            await old_pw.stop()
+        except Exception:
+            pass
 
 
 async def browser_action(action: str = "open", query: str = "", site: str = "google", quantity: int = 1) -> str:
@@ -963,6 +960,7 @@ async def browser_action(action: str = "open", query: str = "", site: str = "goo
         context = await browser.new_context(viewport={"width": 1366, "height": 900})
         page = await context.new_page()
         _pw_refs.append(pw)  # prevent garbage collection — browser stays open
+        await _cleanup_old_browsers()  # limit browser count
 
         # ── Add to Cart flows ──
         if action_lower in ("add_to_cart", "search_product"):
@@ -1067,8 +1065,8 @@ async def _amazon_add_to_cart(page, query: str, quantity: int = 1) -> str:
     """Search Amazon and add first result to cart with specified quantity."""
     try:
         await page.goto("https://www.amazon.in", timeout=30000)
-        await page.wait_for_load_state("networkidle", timeout=15000)
-        await page.wait_for_timeout(2000)
+        await page.wait_for_load_state("domcontentloaded", timeout=15000)
+        await page.wait_for_timeout(3000)
 
         # Search for product
         search_box = page.locator("#twotabsearchtextbox")
@@ -1076,8 +1074,8 @@ async def _amazon_add_to_cart(page, query: str, quantity: int = 1) -> str:
             search_box = page.locator("input[name='field-keywords']").first
         await search_box.fill(query)
         await search_box.press("Enter")
-        await page.wait_for_load_state("networkidle", timeout=15000)
-        await page.wait_for_timeout(3000)
+        await page.wait_for_load_state("domcontentloaded", timeout=15000)
+        await page.wait_for_timeout(4000)
 
         # Click first non-sponsored product result
         results = page.locator('[data-component-type="s-search-result"]')
@@ -1105,8 +1103,8 @@ async def _amazon_add_to_cart(page, query: str, quantity: int = 1) -> str:
         if len(all_pages) > 1:
             page = all_pages[-1]
             await page.bring_to_front()
-        await page.wait_for_load_state("networkidle", timeout=20000)
-        await page.wait_for_timeout(2000)
+        await page.wait_for_load_state("domcontentloaded", timeout=20000)
+        await page.wait_for_timeout(3000)
 
         # Dismiss any popup dialogs (location, language, etc.)
         try:
@@ -1189,8 +1187,8 @@ async def _flipkart_add_to_cart(page, query: str) -> str:
     """Search Flipkart and add first result to cart."""
     try:
         await page.goto("https://www.flipkart.com", timeout=20000)
-        await page.wait_for_load_state("networkidle", timeout=15000)
-        await page.wait_for_timeout(2000)
+        await page.wait_for_load_state("domcontentloaded", timeout=15000)
+        await page.wait_for_timeout(3000)
 
         # Close login popup if it appears (Flipkart changes class names often)
         try:
@@ -1215,8 +1213,8 @@ async def _flipkart_add_to_cart(page, query: str) -> str:
         search_box = page.locator("input[name='q'], input[type='text'][title='Search for products']").first
         await search_box.fill(query)
         await search_box.press("Enter")
-        await page.wait_for_load_state("networkidle", timeout=15000)
-        await page.wait_for_timeout(3000)
+        await page.wait_for_load_state("domcontentloaded", timeout=15000)
+        await page.wait_for_timeout(4000)
 
         # Click first product
         first_product = page.locator("a[href*='/p/']").first
@@ -1227,7 +1225,7 @@ async def _flipkart_add_to_cart(page, query: str) -> str:
         pages = page.context.pages
         if len(pages) > 1:
             page = pages[-1]
-            await page.wait_for_load_state("networkidle", timeout=15000)
+            await page.wait_for_load_state("domcontentloaded", timeout=15000)
         await page.wait_for_timeout(2000)
 
         # Try to click "ADD TO CART" (case-insensitive with multiple selectors)
@@ -1274,7 +1272,7 @@ async def _grocery_search(page, query: str, site: str) -> str:
 
     try:
         await page.goto(url, timeout=20000)
-        await page.wait_for_load_state("networkidle", timeout=15000)
+        await page.wait_for_load_state("domcontentloaded", timeout=15000)
         await page.wait_for_timeout(3000)
 
         # Try to click "ADD" button on the first product
@@ -2153,7 +2151,7 @@ async def check_gmail() -> str:
     import email as email_lib
     from email.header import decode_header
 
-    gmail_user = os.environ.get("JARVIS_EMAIL_USER", "aniketsupermails2005@gmail.com")
+    gmail_user = os.environ.get("JARVIS_EMAIL_USER", OWNER_PROFILE.get("email", ""))
     gmail_pass = os.environ.get("JARVIS_EMAIL_PASSWORD", "")
 
     if not gmail_pass:
@@ -2436,6 +2434,187 @@ async def create_project(name: str, template: str = "python") -> str:
     return f"Created {template} project '{name}' at {base} and opened in VS Code."
 
 
+# ─── AI Image Generation (Pollinations.ai — free, no API key) ───────────────
+
+async def generate_image(prompt: str, style: str = "auto") -> str:
+    """Generate an AI image from a text prompt using Pollinations.ai (free, unlimited).
+    Downloads the image, saves to Desktop, and opens it.
+    """
+    import urllib.parse
+
+    # Clean up prompt for better results
+    enhanced_prompt = prompt.strip()
+    if style and style != "auto":
+        enhanced_prompt = f"{enhanced_prompt}, {style} style"
+
+    encoded = urllib.parse.quote(enhanced_prompt)
+    url = f"https://image.pollinations.ai/prompt/{encoded}?width=1024&height=1024&nologo=true"
+
+    try:
+        async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+            resp = await client.get(url)
+            if resp.status_code != 200:
+                return f"Image generation failed (HTTP {resp.status_code}). Try a different prompt."
+
+            # Save to Desktop
+            safe_name = prompt[:40].replace(' ', '_').replace('/', '_').replace('\\', '_')
+            save_path = os.path.join(os.path.expanduser("~"), "Desktop", f"jarvis_generated_{safe_name}.png")
+            with open(save_path, "wb") as f:
+                f.write(resp.content)
+
+            # Open the image
+            try:
+                os.startfile(save_path)  # type: ignore[attr-defined]
+            except Exception:
+                subprocess.Popen(["cmd", "/c", "start", "", save_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+            return f"Generated image for '{prompt}' and opened it! Saved at: {save_path}"
+    except httpx.TimeoutException:
+        return "Image generation timed out. The servers might be busy — try again."
+    except Exception as e:
+        return f"Image generation error: {e}"
+
+
+# ─── Type in App (pyautogui-based device control) ───────────────────────────
+
+async def type_in_app(app_name: str, text: str, action: str = "type") -> str:
+    """Open an app and type text into it. Works with any application.
+    Actions: type (types text), paste (pastes from clipboard).
+    """
+    import asyncio
+    import time
+
+    # Step 1: Launch the app
+    app_lower = app_name.lower().strip()
+    app_commands = {
+        "notepad": "notepad",
+        "word": "winword",
+        "excel": "excel",
+        "powerpoint": "powerpnt",
+        "paint": "mspaint",
+        "cmd": "cmd",
+        "powershell": "powershell",
+        "terminal": "wt",
+        "wordpad": "wordpad",
+        "code": "code",
+        "vscode": "code",
+        "vs code": "code",
+    }
+
+    cmd = app_commands.get(app_lower, app_lower)
+    try:
+        subprocess.Popen([cmd], shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        try:
+            os.startfile(cmd)  # type: ignore[attr-defined]
+        except Exception:
+            return f"Could not open {app_name}. Make sure it's installed."
+
+    # Step 2: Wait for app to open
+    await asyncio.sleep(2.5)
+
+    # Step 3: Type the text using pyautogui
+    try:
+        import pyautogui
+        pyautogui.FAILSAFE = True
+
+        if action == "paste":
+            # Copy to clipboard then paste
+            import pyperclip
+            pyperclip.copy(text)
+            pyautogui.hotkey("ctrl", "v")
+        else:
+            # Type character by character (works with any app)
+            pyautogui.typewrite(text, interval=0.02) if text.isascii() else _type_unicode(text)
+
+        return f"Opened {app_name} and typed the text successfully."
+    except ImportError:
+        return f"Opened {app_name} but typing requires 'pyautogui'. Install with: pip install pyautogui pyperclip"
+    except Exception as e:
+        return f"Opened {app_name} but typing failed: {e}"
+
+
+def _type_unicode(text: str):
+    """Type Unicode text using clipboard paste (pyautogui can't type unicode)."""
+    try:
+        import pyperclip
+        import pyautogui
+        pyperclip.copy(text)
+        pyautogui.hotkey("ctrl", "v")
+    except Exception:
+        import pyautogui
+        # Fallback: type ASCII-safe portion
+        safe_text = text.encode('ascii', errors='ignore').decode()
+        if safe_text:
+            pyautogui.typewrite(safe_text, interval=0.02)
+
+
+# ─── Vision Analyze with actual Vision Model ────────────────────────────────
+
+async def vision_analyze_webcam(image_data: bytes = None, query: str = "Describe what you see") -> str:
+    """Analyze an image using Ollama vision model (moondream2 or llava).
+    Can analyze webcam captures or screen captures.
+    Falls back to YOLO detection + text LLM if no vision model available.
+    """
+    from config import config
+    import io
+
+    # If no image data provided, capture screen
+    if image_data is None:
+        try:
+            import mss
+            with mss.mss() as sct:
+                monitor = sct.monitors[1]
+                img = sct.grab(monitor)
+                from mss.tools import to_png
+                image_data = to_png(img.rgb, img.size)
+        except ImportError:
+            return "Vision requires 'mss' package. Install with: pip install mss"
+
+    # Encode image as base64
+    b64_image = base64.b64encode(image_data).decode("utf-8")
+
+    # Try vision models in order of preference
+    vision_models = ["moondream", "llava", "llava-phi3", "bakllava"]
+
+    for model_name in vision_models:
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                # Check if model exists
+                tags_resp = await client.get(f"{config.ollama_url}/api/tags")
+                if tags_resp.status_code == 200:
+                    models = [m["name"].split(":")[0] for m in tags_resp.json().get("models", [])]
+                    if model_name not in models:
+                        continue
+
+                # Use the vision model
+                resp = await client.post(
+                    f"{config.ollama_url}/api/generate",
+                    json={
+                        "model": model_name,
+                        "prompt": query,
+                        "images": [b64_image],
+                        "stream": False,
+                        "options": {"num_predict": 500, "temperature": 0.5, "num_gpu": -1},
+                    },
+                )
+                if resp.status_code == 200:
+                    result = resp.json().get("response", "").strip()
+                    if result:
+                        return result
+        except Exception:
+            continue
+
+    # Fallback: use YOLO + text LLM
+    try:
+        from vision.pipeline import get_vision_pipeline
+        pipeline = get_vision_pipeline()
+        result = await pipeline.analyze(image_data, query)
+        return result.get("result", "No analysis returned")
+    except Exception as e:
+        return f"Vision analysis error: {e}. Try running: ollama pull moondream"
+
+
 # Tool registry
 TOOLS = {
     "web_search": {"fn": web_search, "desc": "Search the web for information", "args": ["query"]},
@@ -2484,6 +2663,9 @@ TOOLS = {
     "git_pull": {"fn": git_pull, "desc": "Pull latest changes from remote", "args": ["path"]},
     "run_python": {"fn": run_python, "desc": "Execute Python code or run a .py file", "args": ["code", "file"]},
     "create_project": {"fn": create_project, "desc": "Create a new project folder with boilerplate", "args": ["name", "template"]},
+    "generate_image": {"fn": generate_image, "desc": "Generate an AI image from a text description", "args": ["prompt", "style"]},
+    "type_in_app": {"fn": type_in_app, "desc": "Open an app and type text into it", "args": ["app_name", "text", "action"]},
+    "vision_analyze_webcam": {"fn": vision_analyze_webcam, "desc": "Analyze image with AI vision model (moondream/llava)", "args": ["query"]},
 }
 
 

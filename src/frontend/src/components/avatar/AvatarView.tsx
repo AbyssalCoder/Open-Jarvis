@@ -174,9 +174,9 @@ function VRMModel({ speaking, thinking, listening, onLoaded }: {
                 VRMUtils.removeUnnecessaryJoints(vrm.scene);
                 VRMUtils.removeUnnecessaryVertices(vrm.scene);
 
-                // Position model so face is centered in camera view
-                // VRM model ~1.7 units tall. At y=-1.55, head at ~0.15, camera at y=0.65 sees face
-                vrm.scene.position.set(0, -1.55, 0);
+                // Position model at origin — camera does the framing
+                // VRM models have feet at y=0, head at ~y=1.45
+                vrm.scene.position.set(0, -0.5, 0);
                 vrm.scene.rotation.y = Math.PI; // face camera
 
                 // === CRITICAL: Apply natural pose (fix T-pose) ===
@@ -319,18 +319,37 @@ function LightingRig({ speaking, thinking }: { speaking: boolean; thinking: bool
 
     return (
         <>
-            {/* Key frontal light — moderate intensity to preserve MToon toon colors */}
-            <directionalLight position={[0, 0.8, 3]} intensity={0.9} color="#ffffff" />
+            {/* Key frontal light — at face level */}
+            <directionalLight position={[0, 1.2, 3]} intensity={0.9} color="#ffffff" />
             {/* Fill from left */}
-            <directionalLight position={[-1.5, 0.5, 1.5]} intensity={0.35} color="#e0d8f0" />
-            {/* Hemisphere: sky/ground ambient — low intensity to avoid washout */}
+            <directionalLight position={[-1.5, 1.0, 1.5]} intensity={0.35} color="#e0d8f0" />
+            {/* Hemisphere: sky/ground ambient */}
             <hemisphereLight args={['#d8c8e0', '#1a0810', 0.35]} />
             {/* Rim: colored backlight for anime glow separation */}
-            <pointLight ref={rimRef} position={[0, 0.6, -1.5]} intensity={0.2} color="#ff69b4" distance={5} />
+            <pointLight ref={rimRef} position={[0, 1.2, -1.5]} intensity={0.2} color="#ff69b4" distance={5} />
             {/* Hair highlight from above */}
-            <pointLight position={[0.2, 1.2, 0.8]} intensity={0.2} color="#fff0f5" distance={4} />
+            <pointLight position={[0.2, 1.8, 0.8]} intensity={0.2} color="#fff0f5" distance={4} />
         </>
     );
+}
+
+// ── Camera Rig (locks onto avatar face) ───────────────────────────
+
+function CameraRig() {
+    const { camera } = useThree();
+    const initialized = useRef(false);
+
+    useFrame(() => {
+        if (initialized.current) return;
+        // Camera position: in front of face
+        // Model at y=-0.5, head at ~y=0.9 (model height ~1.4 units for this VRM)
+        // Camera looks straight at face level
+        camera.position.set(0, 0.95, 0.9);
+        camera.lookAt(0, 0.85, 0);
+        initialized.current = true;
+    });
+
+    return null;
 }
 
 // ── R3F Scene ──────────────────────────────────────────────────────
@@ -340,7 +359,7 @@ function AvatarScene({ speaking, thinking, listening, onLoaded }: {
 }) {
     return (
         <Canvas
-            camera={{ position: [0, 0.65, 1.2], fov: 28 }}
+            camera={{ position: [0, 1.35, 0.8], fov: 22 }}
             style={{ position: 'absolute', inset: 0, zIndex: 1 }}
             gl={{
                 antialias: true,
@@ -349,6 +368,8 @@ function AvatarScene({ speaking, thinking, listening, onLoaded }: {
                 outputColorSpace: THREE.SRGBColorSpace,
             }}
         >
+            {/* Camera controller that locks onto avatar head */}
+            <CameraRig />
             <LightingRig speaking={speaking} thinking={thinking} />
             <VRMModel speaking={speaking} thinking={thinking} listening={listening} onLoaded={onLoaded} />
             <EffectComposer>
