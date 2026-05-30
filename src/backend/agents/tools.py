@@ -2615,6 +2615,281 @@ async def vision_analyze_webcam(image_data: bytes = None, query: str = "Describe
         return f"Vision analysis error: {e}. Try running: ollama pull moondream"
 
 
+# ─── Email Importance Classifier + WhatsApp Notification ─────────────────────
+
+# State for background email monitoring
+_email_monitor_active = False
+_last_seen_email_ids: set = set()
+_NOTIFY_PHONE = os.getenv("OWNER_PHONE", "917980458591").replace("+", "").replace(" ", "")
+_CALLMEBOT_API_KEY = os.getenv("CALLMEBOT_API_KEY", "")  # Set after one-time activation
+
+
+async def _classify_email_importance(sender: str, subject: str, body_preview: str) -> dict:
+    """Use LLM to classify if an email is important. Returns {important: bool, reason: str, score: int}."""
+    from config import config
+    prompt = f"""You are an email importance classifier. Analyze this email and decide if it's IMPORTANT enough to send an urgent notification to the user's phone.
+
+IMPORTANT emails include:
+- Job offers, interview invitations, hiring decisions
+- University/college admissions, results, deadlines
+- Payment confirmations, bank alerts, financial transactions
+- Security alerts (password changes, login attempts)
+- Emails from known contacts with urgent requests
+- Government/official correspondence
+- Deadline reminders (assignments, applications)
+- Order issues, refund confirmations
+- Health/medical appointments
+
+NOT important (do NOT notify):
+- Marketing/promotional emails
+- Newsletter subscriptions
+- Social media notifications (likes, follows)
+- Generic automated receipts
+- Spam, surveys, feedback requests
+- App update notifications
+- Forum/community digests
+
+Email details:
+From: {sender}
+Subject: {subject}
+Preview: {body_preview[:300]}
+
+Respond ONLY with valid JSON (no markdown):
+{{"important": true/false, "score": 1-10, "reason": "brief reason"}}"""
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                f"{config.ollama_url}/api/generate",
+                json={
+                    "model": "jarvis:latest",
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {"num_predict": 100, "temperature": 0.1, "num_gpu": -1},
+                },
+            )
+            if resp.status_code == 200:
+                text = resp.json().get("response", "").strip()
+                # Extract JSON from response
+                import json as json_mod
+                # Try to find JSON in the response
+                start = text.find("{")
+                end = text.rfind("}") + 1
+                if start >= 0 and end > start:
+                    data = json_mod.loads(text[start:end])
+                    return {
+                        "important": bool(data.get("important", False)),
+                        "score": int(data.get("score", 1)),
+                        "reason": str(data.get("reason", ""))
+                    }
+    except Exception as e:
+        print(f"[JARVIS] Email classification error: {e}")
+
+    # Default: not important
+    return {"important": False, "score": 1, "reason": "Classification failed"}
+
+
+async def _send_notification(message: str) -> str:
+    """Send notification via multiple channels: CallMeBot WhatsApp API, email, or desktop toast."""
+    results = []
+
+    # Method 1: CallMeBot WhatsApp API (free, needs one-time activation)
+    if _CALLMEBOT_API_KEY:
+        try:
+            import urllib.parse
+            encoded_msg = urllib.parse.quote(message)
+            url = f"https://api.callmebot.com/whatsapp.php?phone={_NOTIFY_PHONE}&text={encoded_msg}&apikey={_CALLMEBOT_API_KEY}"
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.get(url)
+                if resp.status_code == 200:
+                    results.append("WhatsApp notification sent via CallMeBot")
+                else:
+                    results.append(f"CallMeBot error: {resp.status_code}")
+        except Exception as e:
+            results.append(f"WhatsApp API error: {e}")
+
+    # Method 2: Email notification to self (always works if credentials exist)
+    smtp_user = os.environ.get("JARVIS_EMAIL_USER", "")
+    smtp_pass = os.environ.get("JARVIS_EMAIL_PASSWORD", "")
+    if smtp_user and smtp_pass:
+        try:
+            msg = MIMEMultipart()
+            msg["From"] = smtp_user
+            msg["To"] = smtp_user  # Send to self
+            msg["Subject"] = "⚡ JARVIS: Important Email Alert"
+            msg.attach(MIMEText(message, "plain"))
+            with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as server:
+                server.login(smtp_user, smtp_pass)
+                server.send_message(msg)
+            results.append("Email notification sent")
+        except Exception as e:
+            results.append(f"Email notification error: {e}")
+
+    # Method 3: Desktop toast notification (always works on Windows)
+    try:
+        if platform.system() == "Windows":
+            # Use PowerShell toast notification
+            ps_msg = message.replace("'", "''").replace('"', '`"')[:200]
+            ps_cmd = f"""
+            [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
+            [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
+            $template = '<toast><visual><binding template="ToastText02"><text id="1">JARVIS Mail Alert</text><text id="2">{ps_msg}</text></binding></visual></toast>'
+            $xml = New-Object Windows.Data.Xml.Dom.XmlDocument
+            $xml.LoadXml($template)
+            $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
+            [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("JARVIS").Show($toast)
+            """
+            subprocess.Popen(
+                ["powershell", "-WindowStyle", "Hidden", "-Command", ps_cmd],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            )
+            results.append("Desktop toast notification shown")
+    except Exception:
+        pass
+
+    return "; ".join(results) if results else "No notification channels available"
+
+
+async def check_important_emails() -> list:
+    """Check Gmail for new emails and classify importance. Returns list of important emails."""
+    import imaplib
+    import email as email_lib
+    from email.header import decode_header
+
+    gmail_user = os.environ.get("JARVIS_EMAIL_USER", OWNER_PROFILE.get("email", ""))
+    gmail_pass = os.environ.get("JARVIS_EMAIL_PASSWORD", "")
+
+    if not gmail_user or not gmail_pass:
+        return []
+
+    important_emails = []
+    try:
+        mail = imaplib.IMAP4_SSL("imap.gmail.com")
+        mail.login(gmail_user, gmail_pass)
+        mail.select("inbox")
+
+        # Get recent unseen emails
+        status, messages = mail.search(None, "UNSEEN")
+        mail_ids = messages[0].split()
+
+        if not mail_ids:
+            mail.logout()
+            return []
+
+        global _last_seen_email_ids
+        new_ids = [mid for mid in mail_ids if mid not in _last_seen_email_ids]
+        _last_seen_email_ids = set(mail_ids)
+
+        if not new_ids:
+            mail.logout()
+            return []
+
+        for mid in new_ids[-10:]:  # Check last 10 new emails max
+            try:
+                status, msg_data = mail.fetch(mid, "(RFC822)")
+                if status != "OK":
+                    continue
+                msg = email_lib.message_from_bytes(msg_data[0][1])
+
+                # Decode subject
+                subject_raw = msg.get("Subject", "No Subject")
+                decoded_parts = decode_header(subject_raw)
+                subject = ""
+                for part, enc in decoded_parts:
+                    if isinstance(part, bytes):
+                        subject += part.decode(enc or "utf-8", errors="replace")
+                    else:
+                        subject += str(part)
+
+                sender = msg.get("From", "Unknown")
+
+                # Get body preview
+                body_preview = ""
+                if msg.is_multipart():
+                    for part in msg.walk():
+                        if part.get_content_type() == "text/plain":
+                            try:
+                                body_preview = part.get_payload(decode=True).decode(errors="replace")[:500]
+                            except Exception:
+                                pass
+                            break
+                else:
+                    try:
+                        body_preview = msg.get_payload(decode=True).decode(errors="replace")[:500]
+                    except Exception:
+                        pass
+
+                # Classify importance
+                classification = await _classify_email_importance(sender, subject, body_preview)
+
+                if classification["important"] and classification["score"] >= 6:
+                    important_emails.append({
+                        "sender": sender,
+                        "subject": subject,
+                        "score": classification["score"],
+                        "reason": classification["reason"],
+                    })
+            except Exception as e:
+                print(f"[JARVIS] Error processing email {mid}: {e}")
+                continue
+
+        mail.logout()
+    except Exception as e:
+        print(f"[JARVIS] Email check error: {e}")
+
+    return important_emails
+
+
+async def monitor_emails(action: str = "status") -> str:
+    """Enable/disable background email monitoring with importance notifications.
+    Actions: enable, disable, status, check_now
+    """
+    global _email_monitor_active
+
+    action_lower = action.lower().strip()
+
+    if action_lower == "enable":
+        _email_monitor_active = True
+        return (
+            "Email monitoring ENABLED. I'll check your inbox every 5 minutes and notify you "
+            "via WhatsApp/desktop notification when important emails arrive.\n\n"
+            f"Notification phone: {_NOTIFY_PHONE}\n"
+            f"CallMeBot API: {'configured' if _CALLMEBOT_API_KEY else 'not set (desktop + email notifications only)'}\n\n"
+            "To enable WhatsApp notifications:\n"
+            "1. Send 'I allow callmebot to send me messages' to +34 644 59 71 67 on WhatsApp\n"
+            "2. You'll receive an API key\n"
+            "3. Set CALLMEBOT_API_KEY=<your_key> in your .env file"
+        )
+
+    elif action_lower == "disable":
+        _email_monitor_active = False
+        return "Email monitoring DISABLED. You won't receive automatic notifications."
+
+    elif action_lower == "check_now":
+        important = await check_important_emails()
+        if not important:
+            return "No important emails found right now."
+
+        results = [f"Found {len(important)} important email(s):\n"]
+        for em in important:
+            results.append(f"⚡ Score {em['score']}/10 — {em['reason']}\n   From: {em['sender']}\n   Subject: {em['subject']}")
+            # Send notification
+            notif_msg = f"📧 Important Email!\nFrom: {em['sender']}\nSubject: {em['subject']}\nReason: {em['reason']}"
+            await _send_notification(notif_msg)
+
+        return "\n\n".join(results)
+
+    else:  # status
+        status = "ACTIVE" if _email_monitor_active else "INACTIVE"
+        return (
+            f"Email monitor: {status}\n"
+            f"Phone: {_NOTIFY_PHONE}\n"
+            f"WhatsApp API: {'configured' if _CALLMEBOT_API_KEY else 'not configured (using desktop + email)'}\n"
+            f"Tracked emails: {len(_last_seen_email_ids)}\n"
+            f"Email credentials: {'configured' if os.environ.get('JARVIS_EMAIL_PASSWORD') else 'missing'}"
+        )
+
+
 # Tool registry
 TOOLS = {
     "web_search": {"fn": web_search, "desc": "Search the web for information", "args": ["query"]},
@@ -2666,6 +2941,7 @@ TOOLS = {
     "generate_image": {"fn": generate_image, "desc": "Generate an AI image from a text description", "args": ["prompt", "style"]},
     "type_in_app": {"fn": type_in_app, "desc": "Open an app and type text into it", "args": ["app_name", "text", "action"]},
     "vision_analyze_webcam": {"fn": vision_analyze_webcam, "desc": "Analyze image with AI vision model (moondream/llava)", "args": ["query"]},
+    "monitor_emails": {"fn": monitor_emails, "desc": "Enable/disable email importance monitoring with WhatsApp notifications", "args": ["action"]},
 }
 
 

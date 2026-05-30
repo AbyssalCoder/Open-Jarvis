@@ -312,23 +312,25 @@ function LightingRig({ speaking, thinking }: { speaking: boolean; thinking: bool
         const t = state.clock.elapsedTime;
         if (rimRef.current) {
             rimRef.current.intensity = speaking
-                ? 0.5 + Math.sin(t * 3) * 0.15
-                : thinking ? 0.35 + Math.sin(t * 1.5) * 0.1 : 0.25;
+                ? 0.4 + Math.sin(t * 3) * 0.1
+                : thinking ? 0.3 + Math.sin(t * 1.5) * 0.08 : 0.2;
         }
     });
 
     return (
         <>
-            {/* Key frontal light — at face level */}
-            <directionalLight position={[0, 1.2, 3]} intensity={0.9} color="#ffffff" />
-            {/* Fill from left */}
-            <directionalLight position={[-1.5, 1.0, 1.5]} intensity={0.35} color="#e0d8f0" />
-            {/* Hemisphere: sky/ground ambient */}
-            <hemisphereLight args={['#d8c8e0', '#1a0810', 0.35]} />
+            {/* Key light — slightly right and above, angled for face shadow definition */}
+            <directionalLight position={[0.5, 1.8, 2.5]} intensity={0.65} color="#fff5f0" />
+            {/* Fill from left — softer, gives depth */}
+            <directionalLight position={[-1.2, 1.0, 1.0]} intensity={0.25} color="#e8e0f5" />
+            {/* Hemisphere: warm sky / cool ground ambient for anime feel */}
+            <hemisphereLight args={['#e8d8f0', '#1a0810', 0.3]} />
+            {/* Low ambient to prevent total blackout on unlit sides */}
+            <ambientLight intensity={0.08} color="#e0d0e8" />
             {/* Rim: colored backlight for anime glow separation */}
-            <pointLight ref={rimRef} position={[0, 1.2, -1.5]} intensity={0.2} color="#ff69b4" distance={5} />
-            {/* Hair highlight from above */}
-            <pointLight position={[0.2, 1.8, 0.8]} intensity={0.2} color="#fff0f5" distance={4} />
+            <pointLight ref={rimRef} position={[0, 1.4, -1.5]} intensity={0.2} color="#ff69b4" distance={5} />
+            {/* Hair highlight — above and slightly behind */}
+            <pointLight position={[0.3, 2.0, 0.3]} intensity={0.15} color="#fff0f5" distance={4} />
         </>
     );
 }
@@ -341,11 +343,11 @@ function CameraRig() {
 
     useFrame(() => {
         if (initialized.current) return;
-        // Camera position: in front of face
-        // Model at y=-0.5, head at ~y=0.9 (model height ~1.4 units for this VRM)
-        // Camera looks straight at face level
-        camera.position.set(0, 0.95, 0.9);
-        camera.lookAt(0, 0.85, 0);
+        // Portrait framing: head + upper chest visible
+        // Model at y=-0.5, head top ~y=1.0, chin ~y=0.7
+        // Camera slightly below eye level looking slightly up = cute angle
+        camera.position.set(0, 0.75, 2.2);
+        camera.lookAt(0, 0.65, 0);
         initialized.current = true;
     });
 
@@ -359,12 +361,12 @@ function AvatarScene({ speaking, thinking, listening, onLoaded }: {
 }) {
     return (
         <Canvas
-            camera={{ position: [0, 1.35, 0.8], fov: 22 }}
+            camera={{ position: [0, 0.75, 2.2], fov: 28 }}
             style={{ position: 'absolute', inset: 0, zIndex: 1 }}
             gl={{
                 antialias: true,
-                toneMapping: THREE.NeutralToneMapping,
-                toneMappingExposure: 1.0,
+                toneMapping: THREE.ACESFilmicToneMapping,
+                toneMappingExposure: 0.85,
                 outputColorSpace: THREE.SRGBColorSpace,
             }}
         >

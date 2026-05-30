@@ -37,12 +37,14 @@ async def lifespan(app: FastAPI):
 
     # Start background reminder checker
     reminder_task = asyncio.create_task(_check_reminders_loop())
+    email_monitor_task = asyncio.create_task(_check_email_monitor_loop())
 
     yield
 
     # Shutdown
     print("[JARVIS] Shutting down...")
     reminder_task.cancel()
+    email_monitor_task.cancel()
     training_collector.flush()
     await agent_registry.shutdown()
 
@@ -67,6 +69,37 @@ async def _check_reminders_loop():
             break
         except Exception as e:
             print(f"[JARVIS] Reminder check error: {e}")
+
+
+async def _check_email_monitor_loop():
+    """Background loop: check for important emails every 5 minutes and send notifications."""
+    from agents.tools import (
+        _email_monitor_active,
+        check_important_emails,
+        _send_notification,
+    )
+    while True:
+        try:
+            await asyncio.sleep(300)  # Check every 5 minutes
+            # Re-import to get current state (mutable global)
+            from agents import tools as tools_mod
+            if not tools_mod._email_monitor_active:
+                continue
+
+            important = await check_important_emails()
+            for em in important:
+                msg = (
+                    f"📧 Important Email!\n"
+                    f"From: {em['sender']}\n"
+                    f"Subject: {em['subject']}\n"
+                    f"Reason: {em['reason']} (Score: {em['score']}/10)"
+                )
+                result = await _send_notification(msg)
+                print(f"[JARVIS] Email alert sent: {em['subject']} — {result}")
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            print(f"[JARVIS] Email monitor error: {e}")
 
 
 app = FastAPI(

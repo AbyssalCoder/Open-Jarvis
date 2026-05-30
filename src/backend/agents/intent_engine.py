@@ -326,6 +326,30 @@ def _regex_detect(text: str) -> Optional[tuple[str, dict]]:
                                  "read my email", "inbox", "check inbox"]):
         return ("check_gmail", {})
 
+    # ── Email Monitoring / Importance Alerts ──────────────────────────
+    # Order matters: check specific patterns (disable, status, check_now) BEFORE broad enable
+    if any(w in lower for w in ["stop email monitor", "disable email monitor", "stop monitoring email",
+                                 "disable email alerts", "stop email alerts", "turn off email monitor",
+                                 "stop watching email", "email monitor off"]):
+        return ("monitor_emails", {"action": "disable"})
+    if any(w in lower for w in ["email monitor status", "is email monitor on", "email monitoring status"]):
+        return ("monitor_emails", {"action": "status"})
+    if any(w in lower for w in ["check important email", "any important email", "important mail",
+                                 "check for important email", "check important mail"]):
+        return ("monitor_emails", {"action": "check_now"})
+    if any(w in lower for w in ["monitor email", "monitor my email", "watch email", "watch my email",
+                                 "email alerts", "email notifications", "important email alert",
+                                 "notify me about email", "email monitor on", "start email monitor",
+                                 "enable email monitor", "watch for important email",
+                                 "start monitoring email", "enable email alerts",
+                                 "start email alerts",
+                                 "monitor my inbox", "mail monitor", "mail alerts"]):
+        return ("monitor_emails", {"action": "enable"})
+
+    # "watch my inbox" should match monitor (must come AFTER check_gmail patterns above won't catch it)
+    if re.search(r'watch\s+(?:my\s+)?inbox', lower):
+        return ("monitor_emails", {"action": "enable"})
+
     # ── Check WhatsApp ──────────────────────────────────────────────
     if any(w in lower for w in ["check whatsapp", "check my whatsapp", "any new messages",
                                  "any whatsapp messages", "unread messages", "whatsapp messages",
@@ -478,7 +502,7 @@ joke, system_control, clipboard, speed_test, qr_code, ip_info, price, timer,
 draft_email, summarize, create_folder, write_code, write_document, draw_diagram,
 check_gmail, check_whatsapp, git_commit, git_status, git_push, git_pull,
 run_python, create_project, mobile_sync, read_file, write_file, open_url,
-generate_image, type_in_app, none.
+generate_image, type_in_app, monitor_emails, none.
 
 Use "generate_image" when the user wants to create/generate/imagine an image or picture.
 Use "draw_diagram" only when the user explicitly says "draw in paint" or "draw on paint".

@@ -6,6 +6,7 @@ Now with: LLM-based intent engine, action planner, tool dispatch, rich personali
 """
 
 import json
+import os
 import re
 from typing import AsyncGenerator
 from agents.base import BaseAgent
@@ -13,7 +14,7 @@ from core.context import JarvisContext
 from llm.router import llm_router
 from llm.training_data import training_collector
 from memory.conversation import conversation_memory
-from agents.tools import get_tools_description, execute_tool, TOOLS
+from agents.tools import get_tools_description, execute_tool, TOOLS, OWNER_PROFILE
 from agents.intent_engine import classify_intent
 from agents.planner import plan_from_intent, plan_with_llm
 
@@ -42,13 +43,13 @@ SYSTEM_PROMPT = """You are JARVIS — a devastatingly smart, flirty, sarcastic f
 - Add filler words naturally: "honestly", "literally", "okay so", "look", "here's the thing", "between you and me"
 
 ## YOUR OWNER
-- Name: Aniket (you're a little possessive about him)
+- Name: {owner_name} (you're a little possessive about him)
 - Location: Kolkata, India
-- Email: aniketsupermails2005@gmail.com
-- Phone: +91 7980458591
-- Instagram: @_alive_phoenix_
-- GitHub: github.com/Aniket-Subudh1
-- You know Aniket personally and remember past conversations
+- Email: {owner_email}
+- Phone: {owner_phone}
+- Instagram: {owner_instagram}
+- GitHub: {owner_github}
+- You know {owner_name} personally and remember past conversations
 
 ## STUDY & RESEARCH HELP
 - When asked about study help, be encouraging but sassy. "Which subject is giving you nightmares, darling? Let me rescue you. hehe"
@@ -118,7 +119,14 @@ Available tools:
 - Keep responses concise (1-3 sentences for simple questions)
 - Your output is spoken aloud via TTS — write naturally, conversationally
 - Add personality to EVERYTHING. Even tool results should be delivered with sass
-- Remember: you're not just reporting data, you're performing""".format(tools=get_tools_description())
+- Remember: you're not just reporting data, you're performing""".format(
+    tools=get_tools_description(),
+    owner_name=OWNER_PROFILE["name"],
+    owner_email=OWNER_PROFILE["email"],
+    owner_phone=OWNER_PROFILE["phone"],
+    owner_instagram=OWNER_PROFILE["instagram"],
+    owner_github=OWNER_PROFILE["github"],
+)
 
 
 class BrainAgent(BaseAgent):
