@@ -441,6 +441,20 @@ def _regex_detect(text: str) -> Optional[tuple[str, dict]]:
         app = "word" if "word" in lower else "notepad"
         return ("write_document", {"text": text, "app": app})
 
+    # Essay/letter/report/article → write_document (generates content via LLM + opens in Notepad/Word)
+    doc_match = re.search(
+        r'(?:write|create|draft|make|type|compose)\s+(?:me\s+)?(?:an?\s+)?'
+        r'(essay|letter|report|article|paragraph|note|story|speech|poem|assignment|paper|summary|review|blog\s*post|application)'
+        r'(?:\s+(?:about|on|regarding|for|of)\s+(.+))?',
+        lower
+    )
+    if doc_match:
+        doc_type = doc_match.group(1).strip()
+        topic = doc_match.group(2).strip() if doc_match.group(2) else ""
+        content_request = f"Write a {doc_type}" + (f" about {topic}" if topic else "")
+        app = "word" if "word" in lower else "notepad"
+        return ("write_document", {"text": content_request, "app": app})
+
     # ── Browser site search ─────────────────────────────────────────
     site_search = re.search(r'search\s+(?:for\s+)?(.+?)\s+on\s+(amazon|flipkart|youtube|google|github|stackoverflow)', lower)
     if site_search:

@@ -156,34 +156,89 @@ function colorizeVRM(vrm: VRM) {
     const CLOTH_SH  = new THREE.Color('#8A72A8');
     const OUTLINE   = new THREE.Color('#1A0A20');
 
+    /**
+     * Apply color to MToon ShaderMaterial.
+     * MToon uses uniforms (litFactor, shadeColorFactor, emissive, etc.)
+     * and also has getter/setter properties. We set BOTH to be safe,
+     * and remove any map textures so our flat colors show through.
+     */
     const applyColor = (mat: any, color: THREE.Color, shade?: THREE.Color, opts?: {
-        emissive?: THREE.Color; emissiveI?: number; outlineW?: number; transparent?: boolean;
+        emissive?: THREE.Color; emissiveI?: number; outlineW?: number;
+        transparent?: boolean; keepMap?: boolean;
     }) => {
-        if (mat.color) mat.color.copy(color);
-        // MToon shade color (try both property-level and uniform-level)
+        // ── Main color (litFactor uniform) ──
+        if (mat.uniforms?.litFactor?.value) {
+            mat.uniforms.litFactor.value.set(color.r, color.g, color.b);
+        }
+        // Also set via property setter for compatibility
+        try { mat.color = color.clone(); } catch { /* ignore */ }
+
+        // ── Remove texture maps so flat color shows (unless keepMap) ──
+        if (!opts?.keepMap) {
+            if (mat.uniforms?.map) mat.uniforms.map.value = null;
+            try { mat.map = null; } catch { /* ignore */ }
+            // Also remove shade multiply texture
+            if (mat.uniforms?.shadeMultiplyTexture) mat.uniforms.shadeMultiplyTexture.value = null;
+            try { mat.shadeMultiplyTexture = null; } catch { /* ignore */ }
+        }
+
+        // ── Shade color ──
         if (shade) {
-            if (mat.shadeColorFactor) mat.shadeColorFactor.copy(shade);
-            if (mat.uniforms?.shadeColorFactor?.value) mat.uniforms.shadeColorFactor.value.copy(shade);
+            if (mat.uniforms?.shadeColorFactor?.value) {
+                mat.uniforms.shadeColorFactor.value.set(shade.r, shade.g, shade.b);
+            }
+            try { mat.shadeColorFactor = shade.clone(); } catch { /* ignore */ }
         }
+
+        // ── Emissive ──
         if (opts?.emissive) {
-            if (mat.emissive) mat.emissive.copy(opts.emissive);
-            if (mat.emissiveIntensity !== undefined) mat.emissiveIntensity = opts.emissiveI ?? 0.3;
-            if (mat.uniforms?.emissive?.value) mat.uniforms.emissive.value.copy(opts.emissive);
+            if (mat.uniforms?.emissive?.value) {
+                mat.uniforms.emissive.value.set(opts.emissive.r, opts.emissive.g, opts.emissive.b);
+            }
+            if (mat.uniforms?.emissiveIntensity) {
+                mat.uniforms.emissiveIntensity.value = opts.emissiveI ?? 0.3;
+            }
+            try { mat.emissive = opts.emissive.clone(); } catch { /* ignore */ }
+            try { mat.emissiveIntensity = opts.emissiveI ?? 0.3; } catch { /* ignore */ }
+            // Remove emissive map
+            if (mat.uniforms?.emissiveMap) mat.uniforms.emissiveMap.value = null;
+            try { mat.emissiveMap = null; } catch { /* ignore */ }
         }
-        // Anime outlines (MToon outline)
+
+        // ── Outline ──
         if (mat.outlineWidthMode !== undefined) {
             mat.outlineWidthMode = 1;
-            mat.outlineWidthFactor = opts?.outlineW ?? 0.001;
-            if (mat.outlineColorFactor) mat.outlineColorFactor.copy(OUTLINE);
+            if (mat.uniforms?.outlineWidthFactor) {
+                mat.uniforms.outlineWidthFactor.value = opts?.outlineW ?? 0.001;
+            }
+            try { mat.outlineWidthFactor = opts?.outlineW ?? 0.001; } catch { /* ignore */ }
+            if (mat.uniforms?.outlineColorFactor?.value) {
+                mat.uniforms.outlineColorFactor.value.set(OUTLINE.r, OUTLINE.g, OUTLINE.b);
+            }
+            try { mat.outlineColorFactor = OUTLINE.clone(); } catch { /* ignore */ }
         }
-        // For outline variant materials (named "... (Outline)")
-        if (mat.name && mat.name.includes('Outline') && mat.color) {
-            mat.color.copy(OUTLINE);
+
+        // ── Outline variant materials (named "... (Outline)") ──
+        if (mat.name && mat.name.includes('Outline')) {
+            if (mat.uniforms?.litFactor?.value) {
+                mat.uniforms.litFactor.value.set(OUTLINE.r, OUTLINE.g, OUTLINE.b);
+            }
+            try { mat.color = OUTLINE.clone(); } catch { /* ignore */ }
         }
+
+        // ── Transparency ──
         if (opts?.transparent) {
             mat.transparent = true;
-            mat.opacity = 0.95;
+            if (mat.uniforms?.opacity) mat.uniforms.opacity.value = 0.95;
+            try { mat.opacity = 0.95; } catch { /* ignore */ }
         }
+
+        // ── Toony shading for anime look ──
+        if (mat.uniforms?.shadingToonyFactor) {
+            mat.uniforms.shadingToonyFactor.value = 0.9;
+        }
+        try { mat.shadingToonyFactor = 0.9; } catch { /* ignore */ }
+
         mat.needsUpdate = true;
     };
 
@@ -199,19 +254,17 @@ function colorizeVRM(vrm: VRM) {
 
             // ── Eyes ──
             if (/eyeiris|eye_iris|eye.*iris|iris/i.test(n)) {
-                applyColor(mat, IRIS, undefined, { emissive: IRIS_GLOW, emissiveI: 0.5, outlineW: 0 });
+                applyColor(mat, IRIS, undefined, { emissive: IRIS_GLOW, emissiveI: 0.8, outlineW: 0 });
             } else if (/eyewhite|eye_white|eye.*white|sclera/i.test(n)) {
                 applyColor(mat, EYE_W, undefined, { outlineW: 0 });
             } else if (/eyehighlight|eye_highlight|eye.*highlight|eyestar/i.test(n)) {
-                applyColor(mat, EYE_W, undefined, { emissive: new THREE.Color('#FFFFFF'), emissiveI: 0.8, outlineW: 0 });
-                mat.transparent = true;
-                mat.depthWrite = false;
+                applyColor(mat, new THREE.Color('#FFFFFF'), undefined, { emissive: new THREE.Color('#FFFFFF'), emissiveI: 1.2, outlineW: 0, transparent: true });
             } else if (/eyeline|eye_line|eyelash|eye_lash/i.test(n)) {
-                applyColor(mat, LASH, undefined, { outlineW: 0.0005 });
+                applyColor(mat, LASH, undefined, { outlineW: 0.001 });
             } else if (/eyeextra|eye_extra/i.test(n)) {
-                applyColor(mat, EYE_W, undefined, { outlineW: 0 });
+                applyColor(mat, new THREE.Color('#2D1654'), undefined, { outlineW: 0 });
             } else if (/eyebrow|brow/i.test(n)) {
-                applyColor(mat, BROW, undefined, { outlineW: 0 });
+                applyColor(mat, BROW, undefined, { outlineW: 0.0008 });
 
             // ── Mouth ──
             } else if (/tongue/i.test(n)) {
@@ -240,11 +293,10 @@ function colorizeVRM(vrm: VRM) {
                 applyColor(mat, SKIN, SKIN_SH, { outlineW: 0.0008 });
             }
 
-            if (typeof import.meta !== 'undefined' && (import.meta as any).env?.DEV) {
-                console.log(`[VRM Color] ${mesh.name} → ${mat.name} → #${mat.color?.getHexString?.() ?? '?'}`);
-            }
+            console.log(`[VRM Color] ${mesh.name} → ${mat.name} → uniform litFactor: ${mat.uniforms?.litFactor?.value ? '#' + mat.uniforms.litFactor.value.getHexString() : 'N/A'}, type: ${mat.type}`);
         });
     });
+    console.log('[VRM Colorize] Done — all meshes colorized');
 }
 
 // ── VRM Model with full expression system ────────────────────────────
@@ -261,6 +313,7 @@ function VRMModel({ speaking, thinking, listening, onLoaded }: {
     const loadedRef = useRef(false);
     const emotionRef = useRef<EmotionState>('idle');
     const emotionBlend = useRef({ happy: 0, aa: 0, oh: 0 });
+    const gesturePhase = useRef(0);
 
     useEffect(() => {
         if (speaking) emotionRef.current = 'speaking';
@@ -339,6 +392,8 @@ function VRMModel({ speaking, thinking, listening, onLoaded }: {
         const t = state.clock.elapsedTime;
         const em = vrm.expressionManager;
         const humanoid = vrm.humanoid;
+        const isSpeaking = emotionRef.current === 'speaking';
+        const isThinking = emotionRef.current === 'thinking';
 
         // ── Breathing via spine bone ──
         if (humanoid) {
@@ -348,25 +403,65 @@ function VRMModel({ speaking, thinking, listening, onLoaded }: {
             // ── Subtle head movement ──
             const head = humanoid.getNormalizedBoneNode('head');
             if (head) {
-                const target = emotionRef.current;
                 head.rotation.x = 0.03 + Math.sin(t * 0.4) * 0.015;
                 head.rotation.y = Math.sin(t * 0.25) * 0.04;
-                // Curious tilt when listening
-                if (target === 'listening') {
+                if (emotionRef.current === 'listening') {
                     head.rotation.z = Math.sin(t * 0.6) * 0.06;
-                } else if (target === 'thinking') {
+                } else if (isThinking) {
                     head.rotation.x = 0.06 + Math.sin(t * 0.3) * 0.01;
                     head.rotation.z = 0.04;
+                } else if (isSpeaking) {
+                    // More animated head nods while speaking
+                    head.rotation.x = 0.03 + Math.sin(t * 1.5) * 0.025;
+                    head.rotation.y = Math.sin(t * 0.8) * 0.06;
                 } else {
                     head.rotation.z = Math.sin(t * 0.35) * 0.015;
                 }
             }
 
-            // ── Subtle arm sway ──
+            // ── Arm & hand gestures ──
             const lUpperArm = humanoid.getNormalizedBoneNode('leftUpperArm');
             const rUpperArm = humanoid.getNormalizedBoneNode('rightUpperArm');
-            if (lUpperArm) lUpperArm.rotation.z = 1.2 + Math.sin(t * 0.4 + 1) * 0.02;
-            if (rUpperArm) rUpperArm.rotation.z = -1.2 + Math.sin(t * 0.4) * 0.02;
+            const lLowerArm = humanoid.getNormalizedBoneNode('leftLowerArm');
+            const rLowerArm = humanoid.getNormalizedBoneNode('rightLowerArm');
+
+            if (isSpeaking) {
+                // Expressive hand gestures while talking
+                gesturePhase.current += delta * 2.5;
+                const gp = gesturePhase.current;
+
+                // Upper arms wave gently — more range than idle
+                if (lUpperArm) {
+                    lUpperArm.rotation.z = 1.0 + Math.sin(gp * 0.7) * 0.15 + Math.sin(gp * 1.3) * 0.08;
+                    lUpperArm.rotation.x = Math.sin(gp * 0.5 + 1.0) * 0.1;
+                }
+                if (rUpperArm) {
+                    rUpperArm.rotation.z = -1.0 + Math.sin(gp * 0.9 + 0.5) * 0.15 + Math.sin(gp * 1.1) * 0.08;
+                    rUpperArm.rotation.x = Math.sin(gp * 0.6) * 0.1;
+                }
+                // Lower arms add emphasis gestures
+                if (lLowerArm) {
+                    lLowerArm.rotation.z = 0.08 + Math.sin(gp * 1.2) * 0.12;
+                    lLowerArm.rotation.x = -0.1 + Math.sin(gp * 0.8 + 2) * 0.08;
+                }
+                if (rLowerArm) {
+                    rLowerArm.rotation.z = -0.08 + Math.sin(gp * 1.0 + 1) * 0.12;
+                    rLowerArm.rotation.x = -0.1 + Math.sin(gp * 0.9 + 1.5) * 0.08;
+                }
+            } else {
+                // Idle: subtle arm sway, smoothly return from gesture pose
+                gesturePhase.current *= 0.95; // dampen
+                if (lUpperArm) lUpperArm.rotation.z = 1.2 + Math.sin(t * 0.4 + 1) * 0.02;
+                if (rUpperArm) rUpperArm.rotation.z = -1.2 + Math.sin(t * 0.4) * 0.02;
+                if (lLowerArm) {
+                    lLowerArm.rotation.z = 0.08;
+                    lLowerArm.rotation.x = 0;
+                }
+                if (rLowerArm) {
+                    rLowerArm.rotation.z = -0.08;
+                    rLowerArm.rotation.x = 0;
+                }
+            }
         }
 
         // ── Natural blinking ──
@@ -383,23 +478,40 @@ function VRMModel({ speaking, thinking, listening, onLoaded }: {
         }
 
         // ── Smooth emotion blending ──
-        const target = emotionRef.current;
         const blend = emotionBlend.current;
         const lerpSpeed = delta * 4;
 
+        // Speaking mouth: alternate between Aa, Ih, Oh, Ou for natural lip sync
+        let aaTarget = 0, ohTarget = 0, ihTarget = 0, ouTarget = 0;
+        if (isSpeaking) {
+            // Multi-shape mouth animation for realistic speaking
+            const mouthCycle = t * 8; // fast mouth movement
+            const shape = Math.floor(mouthCycle % 4);
+            const blend01 = (Math.sin(mouthCycle * Math.PI) * 0.5 + 0.5);
+            switch (shape) {
+                case 0: aaTarget = 0.5 + blend01 * 0.3; break;  // "ah"
+                case 1: ihTarget = 0.4 + blend01 * 0.2; break;  // "ih" (smile shape)
+                case 2: ohTarget = 0.35 + blend01 * 0.25; break; // "oh"
+                case 3: ouTarget = 0.3 + blend01 * 0.2; break;  // "oo"
+            }
+        }
+
         const targets = {
-            happy: target === 'speaking' ? 0.35 : target === 'idle' ? 0.12 : target === 'listening' ? 0.2 : 0,
-            aa: target === 'speaking' ? Math.abs(Math.sin(t * 7)) * 0.5 + 0.05 : 0,
-            oh: target === 'thinking' ? 0.15 + Math.sin(t * 2) * 0.05 : 0,
+            happy: isSpeaking ? 0.25 : emotionRef.current === 'idle' ? 0.12 : emotionRef.current === 'listening' ? 0.2 : 0,
+            aa: aaTarget,
+            oh: isThinking ? 0.15 + Math.sin(t * 2) * 0.05 : ohTarget,
         };
 
         blend.happy += (targets.happy - blend.happy) * lerpSpeed;
-        blend.aa += (targets.aa - blend.aa) * lerpSpeed * 2;
-        blend.oh += (targets.oh - blend.oh) * lerpSpeed;
+        blend.aa += (targets.aa - blend.aa) * lerpSpeed * 3;
+        blend.oh += (targets.oh - blend.oh) * lerpSpeed * 3;
 
         em?.setValue(VRMExpressionPresetName.Happy, blend.happy);
         em?.setValue(VRMExpressionPresetName.Aa, blend.aa);
         em?.setValue(VRMExpressionPresetName.Oh, blend.oh);
+        // Also try Ih and Ou if available
+        try { em?.setValue('ih' as any, ihTarget > 0.01 ? ihTarget : 0); } catch { /* not available */ }
+        try { em?.setValue('ou' as any, ouTarget > 0.01 ? ouTarget : 0); } catch { /* not available */ }
 
         vrm.update(delta);
     });
