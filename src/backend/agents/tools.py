@@ -2623,6 +2623,178 @@ _last_seen_email_ids: set = set()
 _NOTIFY_PHONE = os.getenv("OWNER_PHONE", "917980458591").replace("+", "").replace(" ", "")
 _CALLMEBOT_API_KEY = os.getenv("CALLMEBOT_API_KEY", "")  # Set after one-time activation
 
+# ─── Telegram Bot Integration ────────────────────────────────────────────────
+
+_TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+_TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")  # Auto-set on first message
+_telegram_last_update_id = 0
+
+
+async def telegram_send(chat_id: str, text: str) -> bool:
+    """Send a message to a Telegram chat. Returns True on success."""
+    if not _TELEGRAM_BOT_TOKEN or not chat_id:
+        return False
+    try:
+        # Telegram limit is 4096 chars per message
+        for i in range(0, len(text), 4000):
+            chunk = text[i:i + 4000]
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.post(
+                    f"https://api.telegram.org/bot{_TELEGRAM_BOT_TOKEN}/sendMessage",
+                    json={"chat_id": chat_id, "text": chunk, "parse_mode": "HTML"},
+                )
+                if resp.status_code != 200:
+                    # Retry without HTML parse mode
+                    await client.post(
+                        f"https://api.telegram.org/bot{_TELEGRAM_BOT_TOKEN}/sendMessage",
+                        json={"chat_id": chat_id, "text": chunk},
+                    )
+        return True
+    except Exception as e:
+        print(f"[JARVIS] Telegram send error: {e}")
+        return False
+
+
+async def telegram_get_updates() -> list:
+    """Poll Telegram for new messages."""
+    global _telegram_last_update_id
+    if not _TELEGRAM_BOT_TOKEN:
+        return []
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(
+                f"https://api.telegram.org/bot{_TELEGRAM_BOT_TOKEN}/getUpdates",
+                params={"offset": _telegram_last_update_id + 1, "timeout": 10},
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                updates = data.get("result", [])
+                if updates:
+                    _telegram_last_update_id = updates[-1]["update_id"]
+                return updates
+    except Exception as e:
+        print(f"[JARVIS] Telegram poll error: {e}")
+    return []
+
+
+async def telegram_handle_command(text: str, chat_id: str) -> str:
+    """Process an incoming Telegram message as a JARVIS command."""
+    global _TELEGRAM_CHAT_ID
+
+    # Auto-save chat_id for notifications
+    if not _TELEGRAM_CHAT_ID:
+        _TELEGRAM_CHAT_ID = str(chat_id)
+        print(f"[JARVIS] Telegram chat ID saved: {_TELEGRAM_CHAT_ID}")
+
+    lower = text.lower().strip()
+
+    # Special Telegram-only commands
+    if lower in ("/start", "/help"):
+        return (
+            "🤖 <b>JARVIS Telegram Bot</b>\n\n"
+            "Send me any command, just like you'd talk to me!\n\n"
+            "<b>📧 Email</b>\n"
+            "• send email to X about Y\n"
+            "• check my email\n"
+            "• check important email\n"
+            "• monitor my email\n\n"
+            "<b>💬 WhatsApp</b>\n"
+            "• send whatsapp to +91XXX saying hello\n"
+            "• check whatsapp\n\n"
+            "<b>🌤 Info</b>\n"
+            "• weather in Kolkata\n"
+            "• latest news on tech\n"
+            "• what time is it\n"
+            "• system info\n\n"
+            "<b>🎵 Media</b>\n"
+            "• play Shape of You on youtube\n"
+            "• pause music / next track\n\n"
+            "<b>🔍 Search & Research</b>\n"
+            "• search for quantum computing\n"
+            "• research machine learning\n"
+            "• translate hello to hindi\n"
+            "• define ephemeral\n\n"
+            "<b>⏰ Reminders</b>\n"
+            "• remind me to call mom in 30 min\n"
+            "• show reminders\n\n"
+            "<b>💻 System</b>\n"
+            "• launch notepad\n"
+            "• run command dir\n"
+            "• speed test\n"
+            "• my ip\n\n"
+            "<b>🛒 Shopping</b>\n"
+            "• add earphones to cart on amazon\n"
+            "• buy milk from blinkit\n\n"
+            "<b>📝 Productivity</b>\n"
+            "• write code for fibonacci in python\n"
+            "• draft email to boss about leave\n"
+            "• generate image of sunset over mountains\n"
+            "• calculate 1567 * 89\n\n"
+            "<b>📊 Finance</b>\n"
+            "• bitcoin price\n"
+            "• price of AAPL\n\n"
+            "<b>🎲 Fun</b>\n"
+            "• tell me a joke\n"
+            "• generate image of a cyberpunk city\n\n"
+            "Type /status to see system status."
+        )
+
+    if lower == "/status":
+        try:
+            sys_info = await get_system_info()
+            email_status = "ON" if _email_monitor_active else "OFF"
+            return (
+                f"📊 <b>JARVIS Status</b>\n\n"
+                f"Email Monitor: {email_status}\n"
+                f"Tracked Emails: {len(_last_seen_email_ids)}\n"
+                f"Tools Available: {len(TOOLS)}\n\n"
+                f"{sys_info}"
+            )
+        except Exception:
+            return "JARVIS is running. All systems operational."
+
+    if lower == "/emails":
+        return await monitor_emails("check_now")
+
+    if lower == "/monitor_on":
+        return await monitor_emails("enable")
+
+    if lower == "/monitor_off":
+        return await monitor_emails("disable")
+
+    # Route through the intent engine
+    from agents.intent_engine import classify_intent
+    intent = await classify_intent(text)
+
+    if intent and intent.get("tool") and intent["tool"] != "none":
+        tool_name = intent["tool"]
+        tool_args = intent.get("args", {})
+        try:
+            result = await execute_tool(tool_name, tool_args)
+            return f"✅ [{tool_name}]\n\n{result}"
+        except Exception as e:
+            return f"❌ Tool error ({tool_name}): {e}"
+
+    # Fallback: use LLM for conversational response
+    from config import config
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                f"{config.ollama_url}/api/generate",
+                json={
+                    "model": "jarvis:latest",
+                    "prompt": f"You are JARVIS, a smart AI assistant. Respond concisely. User: {text}",
+                    "stream": False,
+                    "options": {"num_predict": 300, "temperature": 0.7, "num_gpu": -1},
+                },
+            )
+            if resp.status_code == 200:
+                return resp.json().get("response", "Sorry, I couldn't process that.").strip()
+    except Exception:
+        pass
+
+    return "I received your message but couldn't process it right now. Try again or use /help to see available commands."
+
 
 async def _classify_email_importance(sender: str, subject: str, body_preview: str) -> dict:
     """Use LLM to classify if an email is important. Returns {important: bool, reason: str, score: int}."""
@@ -2690,10 +2862,19 @@ Respond ONLY with valid JSON (no markdown):
 
 
 async def _send_notification(message: str) -> str:
-    """Send notification via multiple channels: CallMeBot WhatsApp API, email, or desktop toast."""
+    """Send notification via multiple channels: Telegram, CallMeBot WhatsApp, email, or desktop toast."""
     results = []
 
-    # Method 1: CallMeBot WhatsApp API (free, needs one-time activation)
+    # Method 1: Telegram (most reliable, always works if configured)
+    if _TELEGRAM_BOT_TOKEN and _TELEGRAM_CHAT_ID:
+        try:
+            success = await telegram_send(_TELEGRAM_CHAT_ID, f"🔔 {message}")
+            if success:
+                results.append("Telegram notification sent")
+        except Exception as e:
+            results.append(f"Telegram error: {e}")
+
+    # Method 2: CallMeBot WhatsApp API (free, needs one-time activation)
     if _CALLMEBOT_API_KEY:
         try:
             import urllib.parse
@@ -2850,15 +3031,18 @@ async def monitor_emails(action: str = "status") -> str:
 
     if action_lower == "enable":
         _email_monitor_active = True
+        channels = []
+        if _TELEGRAM_BOT_TOKEN and _TELEGRAM_CHAT_ID:
+            channels.append("Telegram")
+        if _CALLMEBOT_API_KEY:
+            channels.append("WhatsApp (CallMeBot)")
+        channels.append("Email")
+        channels.append("Desktop toast")
         return (
             "Email monitoring ENABLED. I'll check your inbox every 5 minutes and notify you "
-            "via WhatsApp/desktop notification when important emails arrive.\n\n"
+            f"via {', '.join(channels)} when important emails arrive.\n\n"
             f"Notification phone: {_NOTIFY_PHONE}\n"
-            f"CallMeBot API: {'configured' if _CALLMEBOT_API_KEY else 'not set (desktop + email notifications only)'}\n\n"
-            "To enable WhatsApp notifications:\n"
-            "1. Send 'I allow callmebot to send me messages' to +34 644 59 71 67 on WhatsApp\n"
-            "2. You'll receive an API key\n"
-            "3. Set CALLMEBOT_API_KEY=<your_key> in your .env file"
+            f"Telegram: {'connected' if (_TELEGRAM_BOT_TOKEN and _TELEGRAM_CHAT_ID) else 'not set (add TELEGRAM_BOT_TOKEN in .env)'}"
         )
 
     elif action_lower == "disable":
@@ -2881,10 +3065,12 @@ async def monitor_emails(action: str = "status") -> str:
 
     else:  # status
         status = "ACTIVE" if _email_monitor_active else "INACTIVE"
+        tg_status = "connected" if (_TELEGRAM_BOT_TOKEN and _TELEGRAM_CHAT_ID) else "not configured"
         return (
             f"Email monitor: {status}\n"
             f"Phone: {_NOTIFY_PHONE}\n"
-            f"WhatsApp API: {'configured' if _CALLMEBOT_API_KEY else 'not configured (using desktop + email)'}\n"
+            f"Telegram: {tg_status}\n"
+            f"WhatsApp API: {'configured' if _CALLMEBOT_API_KEY else 'not configured'}\n"
             f"Tracked emails: {len(_last_seen_email_ids)}\n"
             f"Email credentials: {'configured' if os.environ.get('JARVIS_EMAIL_PASSWORD') else 'missing'}"
         )

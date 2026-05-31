@@ -38,6 +38,7 @@ async def lifespan(app: FastAPI):
     # Start background reminder checker
     reminder_task = asyncio.create_task(_check_reminders_loop())
     email_monitor_task = asyncio.create_task(_check_email_monitor_loop())
+    telegram_task = asyncio.create_task(_telegram_bot_loop())
 
     yield
 
@@ -45,6 +46,7 @@ async def lifespan(app: FastAPI):
     print("[JARVIS] Shutting down...")
     reminder_task.cancel()
     email_monitor_task.cancel()
+    telegram_task.cancel()
     training_collector.flush()
     await agent_registry.shutdown()
 
@@ -100,6 +102,44 @@ async def _check_email_monitor_loop():
             break
         except Exception as e:
             print(f"[JARVIS] Email monitor error: {e}")
+
+
+async def _telegram_bot_loop():
+    """Background loop: poll Telegram for incoming messages and process commands."""
+    from agents.tools import (
+        _TELEGRAM_BOT_TOKEN,
+        telegram_get_updates,
+        telegram_handle_command,
+        telegram_send,
+    )
+    if not _TELEGRAM_BOT_TOKEN:
+        print("[JARVIS] Telegram bot not configured (set TELEGRAM_BOT_TOKEN in .env)")
+        return
+
+    print("[JARVIS] Telegram bot started — listening for messages...")
+    while True:
+        try:
+            updates = await telegram_get_updates()
+            for update in updates:
+                msg = update.get("message", {})
+                text = msg.get("text", "")
+                chat_id = msg.get("chat", {}).get("id", "")
+                user = msg.get("from", {}).get("first_name", "User")
+
+                if not text or not chat_id:
+                    continue
+
+                print(f"[JARVIS] Telegram from {user}: {text}")
+                response = await telegram_handle_command(text, str(chat_id))
+                await telegram_send(str(chat_id), response)
+
+            # Short pause between polls (Telegram long-polling handles the wait)
+            await asyncio.sleep(1)
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            print(f"[JARVIS] Telegram bot error: {e}")
+            await asyncio.sleep(5)  # Back off on error
 
 
 app = FastAPI(
