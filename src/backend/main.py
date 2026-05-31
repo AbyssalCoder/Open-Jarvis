@@ -35,6 +35,9 @@ async def lifespan(app: FastAPI):
     event_bus.emit("system.ready", {})
     print("[JARVIS] Backend ready on port 8420")
 
+    # Take over Telegram from cloud bot (delete webhook → enable polling)
+    await _telegram_take_over()
+
     # Start background reminder checker
     reminder_task = asyncio.create_task(_check_reminders_loop())
     email_monitor_task = asyncio.create_task(_check_email_monitor_loop())
@@ -42,11 +45,12 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # Shutdown
+    # Shutdown — hand Telegram back to cloud bot
     print("[JARVIS] Shutting down...")
     reminder_task.cancel()
     email_monitor_task.cancel()
     telegram_task.cancel()
+    await _telegram_hand_off()
     training_collector.flush()
     await agent_registry.shutdown()
 
@@ -102,6 +106,44 @@ async def _check_email_monitor_loop():
             break
         except Exception as e:
             print(f"[JARVIS] Email monitor error: {e}")
+
+
+async def _telegram_take_over():
+    """Delete webhook so local polling takes over from cloud bot."""
+    from agents.tools import _TELEGRAM_BOT_TOKEN
+    if not _TELEGRAM_BOT_TOKEN:
+        return
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                f"https://api.telegram.org/bot{_TELEGRAM_BOT_TOKEN}/deleteWebhook"
+            )
+            if resp.status_code == 200:
+                print("[JARVIS] Telegram webhook deleted — local polling active")
+    except Exception as e:
+        print(f"[JARVIS] Webhook delete error: {e}")
+
+
+async def _telegram_hand_off():
+    """Set webhook back to cloud bot URL so it takes over when laptop is off."""
+    from agents.tools import _TELEGRAM_BOT_TOKEN
+    import os
+    cloud_url = os.getenv("CLOUD_BOT_URL", "")
+    if not _TELEGRAM_BOT_TOKEN or not cloud_url:
+        return
+    try:
+        import httpx
+        webhook_url = f"{cloud_url.rstrip('/')}/webhook"
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                f"https://api.telegram.org/bot{_TELEGRAM_BOT_TOKEN}/setWebhook",
+                json={"url": webhook_url},
+            )
+            if resp.status_code == 200:
+                print(f"[JARVIS] Telegram webhook set to cloud bot: {webhook_url}")
+    except Exception as e:
+        print(f"[JARVIS] Webhook set error: {e}")
 
 
 async def _telegram_bot_loop():
