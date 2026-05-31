@@ -136,6 +136,117 @@ function ParticleOverlay({ speaking, thinking }: { speaking: boolean; thinking: 
     );
 }
 
+// ── Cute Anime Waifu Colorizer ───────────────────────────────────────
+
+function colorizeVRM(vrm: VRM) {
+    // ── Palette: cute anime waifu ──
+    const SKIN      = new THREE.Color('#FFE4D6');
+    const SKIN_SH   = new THREE.Color('#E8C0AA');
+    const HAIR      = new THREE.Color('#2D1654');
+    const HAIR_SH   = new THREE.Color('#1A0B35');
+    const IRIS      = new THREE.Color('#9B7ED8');
+    const IRIS_GLOW = new THREE.Color('#6A4CBB');
+    const EYE_W     = new THREE.Color('#FFFFFF');
+    const BROW      = new THREE.Color('#2A1540');
+    const LASH      = new THREE.Color('#1A0A2E');
+    const MOUTH     = new THREE.Color('#FF9999');
+    const TONGUE    = new THREE.Color('#E87878');
+    const TEETH     = new THREE.Color('#FEFEFE');
+    const CLOTH     = new THREE.Color('#B8A0D2');
+    const CLOTH_SH  = new THREE.Color('#8A72A8');
+    const OUTLINE   = new THREE.Color('#1A0A20');
+
+    const applyColor = (mat: any, color: THREE.Color, shade?: THREE.Color, opts?: {
+        emissive?: THREE.Color; emissiveI?: number; outlineW?: number; transparent?: boolean;
+    }) => {
+        if (mat.color) mat.color.copy(color);
+        // MToon shade color (try both property-level and uniform-level)
+        if (shade) {
+            if (mat.shadeColorFactor) mat.shadeColorFactor.copy(shade);
+            if (mat.uniforms?.shadeColorFactor?.value) mat.uniforms.shadeColorFactor.value.copy(shade);
+        }
+        if (opts?.emissive) {
+            if (mat.emissive) mat.emissive.copy(opts.emissive);
+            if (mat.emissiveIntensity !== undefined) mat.emissiveIntensity = opts.emissiveI ?? 0.3;
+            if (mat.uniforms?.emissive?.value) mat.uniforms.emissive.value.copy(opts.emissive);
+        }
+        // Anime outlines (MToon outline)
+        if (mat.outlineWidthMode !== undefined) {
+            mat.outlineWidthMode = 1;
+            mat.outlineWidthFactor = opts?.outlineW ?? 0.001;
+            if (mat.outlineColorFactor) mat.outlineColorFactor.copy(OUTLINE);
+        }
+        // For outline variant materials (named "... (Outline)")
+        if (mat.name && mat.name.includes('Outline') && mat.color) {
+            mat.color.copy(OUTLINE);
+        }
+        if (opts?.transparent) {
+            mat.transparent = true;
+            mat.opacity = 0.95;
+        }
+        mat.needsUpdate = true;
+    };
+
+    vrm.scene.traverse((obj) => {
+        if (!(obj as THREE.Mesh).isMesh) return;
+        const mesh = obj as THREE.Mesh;
+        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        const mn = (mesh.name || '').toLowerCase();
+
+        mats.forEach((mat: any) => {
+            const matN = (mat.name || '').toLowerCase();
+            const n = mn + ' ' + matN;
+
+            // ── Eyes ──
+            if (/eyeiris|eye_iris|eye.*iris|iris/i.test(n)) {
+                applyColor(mat, IRIS, undefined, { emissive: IRIS_GLOW, emissiveI: 0.5, outlineW: 0 });
+            } else if (/eyewhite|eye_white|eye.*white|sclera/i.test(n)) {
+                applyColor(mat, EYE_W, undefined, { outlineW: 0 });
+            } else if (/eyehighlight|eye_highlight|eye.*highlight|eyestar/i.test(n)) {
+                applyColor(mat, EYE_W, undefined, { emissive: new THREE.Color('#FFFFFF'), emissiveI: 0.8, outlineW: 0 });
+                mat.transparent = true;
+                mat.depthWrite = false;
+            } else if (/eyeline|eye_line|eyelash|eye_lash/i.test(n)) {
+                applyColor(mat, LASH, undefined, { outlineW: 0.0005 });
+            } else if (/eyeextra|eye_extra/i.test(n)) {
+                applyColor(mat, EYE_W, undefined, { outlineW: 0 });
+            } else if (/eyebrow|brow/i.test(n)) {
+                applyColor(mat, BROW, undefined, { outlineW: 0 });
+
+            // ── Mouth ──
+            } else if (/tongue/i.test(n)) {
+                applyColor(mat, TONGUE);
+            } else if (/teeth|tooth/i.test(n)) {
+                applyColor(mat, TEETH);
+            } else if (/mouth|lip|facemouth|face_mouth/i.test(n)) {
+                applyColor(mat, MOUTH, new THREE.Color('#D07070'));
+
+            // ── Hair ──
+            } else if (/hair/i.test(n)) {
+                applyColor(mat, HAIR, HAIR_SH, { outlineW: 0.0015 });
+
+            // ── Clothing (check BEFORE skin, since cloth mesh names may contain "body") ──
+            } else if (/cloth|tops|bottoms|shoes|shirt|hoodie|jacket|pant|skirt|dress|sock|wear|costume/i.test(n)) {
+                applyColor(mat, CLOTH, CLOTH_SH, { outlineW: 0.0012 });
+
+            // ── Face & Skin ──
+            } else if (/face|cheek|nose|ear|forehead|chin/i.test(n) && !/cloth/i.test(n)) {
+                applyColor(mat, SKIN, SKIN_SH, { outlineW: 0.0008 });
+            } else if (/skin|body|neck|arm|hand|leg|foot|finger|head_skin|n_body/i.test(n)) {
+                applyColor(mat, SKIN, SKIN_SH, { outlineW: 0.001 });
+
+            // ── Fallback: default to skin ──
+            } else {
+                applyColor(mat, SKIN, SKIN_SH, { outlineW: 0.0008 });
+            }
+
+            if (typeof import.meta !== 'undefined' && (import.meta as any).env?.DEV) {
+                console.log(`[VRM Color] ${mesh.name} → ${mat.name} → #${mat.color?.getHexString?.() ?? '?'}`);
+            }
+        });
+    });
+}
+
 // ── VRM Model with full expression system ────────────────────────────
 
 type EmotionState = 'idle' | 'happy' | 'thinking' | 'speaking' | 'excited' | 'listening';
@@ -174,38 +285,31 @@ function VRMModel({ speaking, thinking, listening, onLoaded }: {
                 VRMUtils.removeUnnecessaryJoints(vrm.scene);
                 VRMUtils.removeUnnecessaryVertices(vrm.scene);
 
-                // Position model at origin — camera does the framing
-                // VRM models have feet at y=0, head at ~y=1.45
                 vrm.scene.position.set(0, -0.5, 0);
-                vrm.scene.rotation.y = Math.PI; // face camera
+                vrm.scene.rotation.y = Math.PI;
 
-                // === CRITICAL: Apply natural pose (fix T-pose) ===
+                // === Natural pose (fix T-pose) ===
                 const humanoid = vrm.humanoid;
                 if (humanoid) {
-                    // Rotate arms down from T-pose
                     const lUpperArm = humanoid.getNormalizedBoneNode('leftUpperArm');
                     const rUpperArm = humanoid.getNormalizedBoneNode('rightUpperArm');
                     const lLowerArm = humanoid.getNormalizedBoneNode('leftLowerArm');
                     const rLowerArm = humanoid.getNormalizedBoneNode('rightLowerArm');
 
-                    // Arms down ~70 degrees
                     if (lUpperArm) lUpperArm.rotation.z = 1.2;
                     if (rUpperArm) rUpperArm.rotation.z = -1.2;
-                    // Elbows slightly bent inward
                     if (lLowerArm) lLowerArm.rotation.z = 0.08;
                     if (rLowerArm) rLowerArm.rotation.z = -0.08;
 
-                    // Slight relaxed spine
                     const spine = humanoid.getNormalizedBoneNode('spine');
                     if (spine) spine.rotation.x = -0.02;
 
-                    // Slight head tilt for personality
                     const head = humanoid.getNormalizedBoneNode('head');
                     if (head) head.rotation.x = 0.03;
                 }
 
-                // DO NOT override materials — let MToon shader handle everything
-                // MToon materials are set up by VRMLoaderPlugin automatically
+                // ═══ COLORIZE: Apply anime waifu skin/hair/eye colors ═══
+                colorizeVRM(vrm);
 
                 scene.add(vrm.scene);
                 vrmRef.current = vrm;
@@ -319,18 +423,20 @@ function LightingRig({ speaking, thinking }: { speaking: boolean; thinking: bool
 
     return (
         <>
-            {/* Key light — slightly right and above, angled for face shadow definition */}
-            <directionalLight position={[0.5, 1.8, 2.5]} intensity={0.65} color="#fff5f0" />
-            {/* Fill from left — softer, gives depth */}
-            <directionalLight position={[-1.2, 1.0, 1.0]} intensity={0.25} color="#e8e0f5" />
+            {/* Key light — warm front-right for face definition */}
+            <directionalLight position={[0.5, 1.8, 2.5]} intensity={1.2} color="#fff5f0" />
+            {/* Fill from left — lavender tint for anime depth */}
+            <directionalLight position={[-1.2, 1.0, 1.0]} intensity={0.5} color="#e8e0f5" />
+            {/* Front fill — ensures face details (eyes, nose, lips) are visible */}
+            <directionalLight position={[0, 1.2, 3.0]} intensity={0.6} color="#fff0f0" />
             {/* Hemisphere: warm sky / cool ground ambient for anime feel */}
-            <hemisphereLight args={['#e8d8f0', '#1a0810', 0.3]} />
-            {/* Low ambient to prevent total blackout on unlit sides */}
-            <ambientLight intensity={0.08} color="#e0d0e8" />
+            <hemisphereLight args={['#f0e0f5', '#1a0810', 0.45]} />
+            {/* Ambient to bring out material colors */}
+            <ambientLight intensity={0.2} color="#f0e0f0" />
             {/* Rim: colored backlight for anime glow separation */}
-            <pointLight ref={rimRef} position={[0, 1.4, -1.5]} intensity={0.2} color="#ff69b4" distance={5} />
+            <pointLight ref={rimRef} position={[0, 1.4, -1.5]} intensity={0.3} color="#ff69b4" distance={5} />
             {/* Hair highlight — above and slightly behind */}
-            <pointLight position={[0.3, 2.0, 0.3]} intensity={0.15} color="#fff0f5" distance={4} />
+            <pointLight position={[0.3, 2.0, 0.3]} intensity={0.25} color="#e8d0ff" distance={4} />
         </>
     );
 }
@@ -366,7 +472,7 @@ function AvatarScene({ speaking, thinking, listening, onLoaded }: {
             gl={{
                 antialias: true,
                 toneMapping: THREE.ACESFilmicToneMapping,
-                toneMappingExposure: 0.85,
+                toneMappingExposure: 1.1,
                 outputColorSpace: THREE.SRGBColorSpace,
             }}
         >
