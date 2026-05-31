@@ -10,6 +10,8 @@ import json
 import imaplib
 import smtplib
 import email as email_lib
+import threading
+import time
 from email.header import decode_header
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -25,8 +27,29 @@ EMAIL_USER = os.environ.get("JARVIS_EMAIL_USER", "")
 EMAIL_PASS = os.environ.get("JARVIS_EMAIL_PASSWORD", "")
 OWNER_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 OWNER_NAME = os.environ.get("OWNER_NAME", "Boss")
+RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL", "")  # Auto-set by Render
 
 app = Flask(__name__)
+
+
+# ─── Keep-Alive (prevent Render free tier spin-down) ──────────────────────────
+
+def _keep_alive():
+    """Ping self every 14 minutes to prevent Render free tier from sleeping."""
+    while True:
+        time.sleep(840)  # 14 minutes
+        try:
+            url = RENDER_URL or os.environ.get("CLOUD_BOT_URL", "")
+            if url:
+                httpx.get(f"{url.rstrip('/')}/health", timeout=10)
+                print(f"[KEEP-ALIVE] Pinged {url}/health at {datetime.now().isoformat()}")
+        except Exception as e:
+            print(f"[KEEP-ALIVE] Ping failed: {e}")
+
+
+# Start keep-alive thread on import
+_keep_alive_thread = threading.Thread(target=_keep_alive, daemon=True)
+_keep_alive_thread.start()
 
 
 # ─── Telegram Helpers ─────────────────────────────────────────────────────────
